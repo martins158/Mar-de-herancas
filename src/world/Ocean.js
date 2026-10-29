@@ -24,6 +24,9 @@ import * as THREE from 'three';
  *
  *   // altura da água em qualquer ponto do mundo:
  *   const y = ocean.getHeightAt(x, z);
+ *
+ *   // escurece a água para azul petróleo (0 = normal, 1 = petróleo):
+ *   ocean.setPetrol(0.6);
  */
 
 const GRAVITY = 9.81;
@@ -54,6 +57,12 @@ export class Ocean {
     this.cell = size / segments; // o plano anda em passos dessa largura (sem "nadar")
     this.speedScale = speedScale;
     this.time = 0;
+
+    // cores base e cores "azul petróleo" (zona de pesca); setPetrol() mistura as duas
+    this._deepColor = deepColor.clone();
+    this._shallowColor = shallowColor.clone();
+    this._petrolDeep = new THREE.Color(0x03181f);
+    this._petrolShallow = new THREE.Color(0x174852);
 
     this._waves = Ocean.WAVES.map(({ direction, wavelength, amplitude }) => {
       const angle = THREE.MathUtils.degToRad(direction);
@@ -124,6 +133,13 @@ export class Ocean {
       h += w.amplitude * (Math.exp(Math.sin(phase) - 1) - WAVE_MEAN);
     }
     return h;
+  }
+
+  /** Mistura a água com o azul petróleo: 0 = cores originais, 1 = petróleo escuro. */
+  setPetrol(amount) {
+    const t = THREE.MathUtils.clamp(amount, 0, 1);
+    this.uniforms.uDeepColor.value.copy(this._deepColor).lerp(this._petrolDeep, t);
+    this.uniforms.uShallowColor.value.copy(this._shallowColor).lerp(this._petrolShallow, t);
   }
 
   setSunDirection(direction) {

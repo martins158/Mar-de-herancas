@@ -7,9 +7,12 @@ import * as THREE from 'three';
  * Recebe um SceneManager pronto e chama um callback a cada frame, antes
  * de renderizar — é ali que o jogo atualiza oceano, jogador, câmera etc.
  *
+ * "View" = qualquer objeto com { scene, camera }. Por padrão é o próprio
+ * SceneManager (mar 3D); o porto 2D troca a view com setView().
+ *
  * O delta entregue ao callback é limitado a maxDelta (padrão 0.1 s), pra
  * que um travamento ou a volta de outra aba não faça o barco "pular" e
- * atravessar uma ilha. O elapsed continua sendo o tempo real acumulado.
+ * atravessar um ponto. O elapsed continua sendo o tempo real acumulado.
  *
  * Uso:
  *   const engine = new Engine({ sceneManager });
@@ -17,15 +20,23 @@ import * as THREE from 'three';
  *     ocean.update(elapsed);
  *     player.update(delta);
  *   });
+ *
+ *   engine.setView(harbor);          // renderiza harbor.scene com harbor.camera
+ *   engine.setView(sceneManager);    // volta para o mar
+ *   engine.setRenderScale(0.75);     // resolução de renderização
+ *   engine.addResizeListener(() => harbor.onResize());
  */
 export class Engine {
   constructor({ sceneManager, maxDelta = 0.1 }) {
     this.sceneManager = sceneManager;
     this.maxDelta = maxDelta;
+    this.view = sceneManager;
+    this.renderScale = 1;
+    this._resizeListeners = [];
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(this._pixelRatio());
     this.renderer.shadowMap.enabled = true;
     document.body.appendChild(this.renderer.domElement);
 
@@ -39,8 +50,31 @@ export class Engine {
     window.addEventListener('resize', this._onResize);
   }
 
+  _pixelRatio() {
+    return Math.min(window.devicePixelRatio, 2) * this.renderScale;
+  }
+
+  /** Escala da resolução de renderização (1 = nativa; menor = mais desempenho). */
+  setRenderScale(scale) {
+    if (scale === this.renderScale) return;
+    this.renderScale = scale;
+    this.renderer.setPixelRatio(this._pixelRatio());
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+  }
+
+  /** Troca o que está sendo renderizado. view = { scene, camera }. */
+  setView(view) {
+    this.view = view ?? this.sceneManager;
+  }
+
+  /** Registra uma função chamada no resize da janela (além do SceneManager). */
+  addResizeListener(listener) {
+    this._resizeListeners.push(listener);
+  }
+
   _onResize = () => {
     this.sceneManager.onResize();
+    for (const listener of this._resizeListeners) listener();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   };
 
@@ -60,7 +94,7 @@ export class Engine {
 
     if (this._onFrame) this._onFrame(delta, elapsed);
 
-    this.renderer.render(this.sceneManager.scene, this.sceneManager.camera);
+    this.renderer.render(this.view.scene, this.view.camera);
     requestAnimationFrame(this._animate);
   };
 
