@@ -23,6 +23,8 @@ export const DEFAULT_KEYMAP = {
   left: ['KeyA', 'ArrowLeft'],
   right: ['KeyD', 'ArrowRight'],
   interact: ['KeyE', 'Space'],
+  fish: ['KeyG', 'KeyF'], // pescar: lançar, quicktime e recolher
+  stow: ['KeyQ', null], // guardar a vara
 };
 
 export const ACTION_LABELS = {
@@ -31,6 +33,8 @@ export const ACTION_LABELS = {
   left: 'Esquerda',
   right: 'Direita',
   interact: 'Interagir / conversar / avançar diálogo',
+  fish: 'Pescar (lançar / puxar)',
+  stow: 'Guardar a vara',
 };
 
 /** Escalas de resolução de renderização (1 = nativa da tela). */

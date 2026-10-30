@@ -20,7 +20,6 @@ import { Player } from './entities/Player.js';
 import { Compass } from './entities/Compass.js';
 import { Sailor } from './entities/Sailor.js';
 import { FishingRig } from './entities/FishingRig.js';
-import { FishingInput } from './systems/FishingInput.js';
 import { FishingSystem } from './systems/FishingSystem.js';
 import { BoatCollider } from './systems/BoatCollider.js';
 import { FishingUI } from './ui/FishingUI.js';
@@ -32,8 +31,8 @@ import { dampFactor } from './utils/MathUtils.js';
  *   'harbor'  → porto 2D (A/D): conversar (tecla de interagir) com a mãe, os
  *               vizinhos e, no fim do cais, o pai; o botão "Zarpar" da última
  *               conversa leva ao mar
- *   'sailing' → mar 3D: barco + bússola até a zona de pesca; parado nela, G/H
- *               entra no modo de pescaria (FishingSystem)
+ *   'sailing' → mar 3D: barco + bússola até a zona de pesca; parado nela, a
+ *               tecla de pescar (G/F) entra no modo de pescaria (FishingSystem)
  *   'won'     → não dispara mais: a zona de pesca não é um objetivo de vitória
  */
 
@@ -67,8 +66,23 @@ const pois = new PointsOfInterest({ positions: [PointsOfInterest.defaultLayout()
 pois.addTo(sceneManager.scene);
 gameState.setTotalIslands(0); // 0 = sem objetivo de vitória
 const spot = pois.points[0];
-const SPOT_RADIUS = 12; // o mesmo raio do anel de chegada (triggerRadius padrão)
-const FISHING_NAME = 'Zona de pesca';
+const SPOT_RADIUS = spot.radius ?? 12; // o mesmo raio do aro (PointsOfInterest)
+
+// teclas (remapeáveis no menu) para os textos da tela
+const keyName = (action) => formatKey(settings.keymap[action].find(Boolean));
+
+// objetivos/dicas do cartão do HUD (texto em função, para acompanhar o remapeamento)
+const OBJECTIVES = {
+  goFishing: () => ({ title: 'Objetivo', text: 'Vá para a área de pesca inicial.' }),
+  fish: () => ({ title: 'Área de pesca', text: `Pare o barco e pesque (${keyName('fish')}).` }),
+};
+let currentObjective = null;
+function setObjective(key) {
+  if (key === currentObjective) return;
+  currentObjective = key;
+  const data = key ? OBJECTIVES[key]() : null;
+  hud.setObjective(data?.title ?? null, data?.text ?? null);
+}
 
 const isVisited = (id) => gameState.hasVisited(id);
 gameState.onChange(() => pois.refresh(isVisited));
@@ -87,11 +101,13 @@ compass.addTo(sceneManager.scene);
 const sailor = new Sailor();
 player.boat.add(sailor.group);
 
-const fishInput = new FishingInput();
 const fishUI = new FishingUI();
 const rig = new FishingRig({ ocean });
 rig.addTo(sceneManager.scene);
-const fishing = new FishingSystem({ input: fishInput, sailor, rig, ui: fishUI, ocean, boat: player.mesh });
+const fishing = new FishingSystem({
+  input, sailor, rig, ui: fishUI, ocean, boat: player.mesh,
+  keys: { fish: () => keyName('fish'), stow: () => keyName('stow') },
+});
 
 // câmera da pescaria: atrás do barco, olhando para o lado do lançamento (boreste)
 const FISH_CAM_OFFSET = new THREE.Vector3(-1.5, 5.5, 11); // local ao barco
@@ -126,7 +142,7 @@ menu.show();
 
 /** Leva o barco de volta ao ponto de partida e posiciona a câmera atrás dele. */
 function resetBoat() {
-  fishInput.reset();
+  input.reset();
   player.mesh.position.set(0, 0.6, 0);
   player.mesh.rotation.set(0, 0, 0);
   sceneManager.camera.position.set(0, 8, 14);
@@ -245,15 +261,16 @@ engine.start((delta, elapsed) => {
     collider.resolve(player.mesh.position, player.mesh.rotation.y);
   }
 
-  // parado na zona: G/H entra no modo de pescaria
+  // parado na zona: a tecla de pescar entra no modo de pescaria
   const canFish = inSpot && !fishing.active && !transitioning;
   if (canFish) {
-    if (fishInput.consumePress()) fishing.start();
+    if (input.consumeFishPress()) fishing.start();
   } else if (!fishing.active) {
-    fishInput.consumePress();
-    fishInput.consumeRelease();
+    input.consumeFishPress();
+    input.consumeFishRelease();
   }
-  hud.setPrompt(canFish ? 'Pressione G ou H para pescar' : null);
+  hud.setPrompt(canFish ? `Pressione ${keyName('fish')} para pescar` : null);
+  setObjective(fishing.active ? null : inSpot ? 'fish' : 'goFishing');
 
   fishing.update(delta, elapsed);
 
@@ -264,8 +281,6 @@ engine.start((delta, elapsed) => {
   // bússola: aponta para a zona de pesca (some enquanto pesca)
   const showCompass = !fishing.active;
   compass.update(delta, boatPos, showCompass ? spot.position : null);
-  hud.setCompass(showCompass ? { name: FISHING_NAME, distance: toSpot } : null);
-  hud.updatePosition(boatPos);
 
   if (fishing.active) {
     updateFishingCamera(delta);

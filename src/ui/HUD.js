@@ -2,72 +2,58 @@
 
 /**
  * HUD
- * Overlay simples em DOM (sem framework de UI ainda) mostrando fase do
- * jogo, posição do barco, bússola e progresso. Se inscreve no GameState
- * via onChange — só re-renderiza quando o estado muda ou quando
- * updatePosition() é chamado.
- *
- * Além do painel, tem:
- *  - banner de vitória (fase 'won');
- *  - prompt na parte de baixo da tela ("Pressione E para zarpar").
+ * Overlay simples em DOM (sem framework de UI). Tem:
+ *  - cartão de objetivo/dica no canto superior esquerdo (setObjective);
+ *  - prompt na parte de baixo da tela ("Pressione G para pescar").
+ * O painel de debug (fase, posição, bússola, itens, pontos) foi removido.
  *
  * Uso:
  *   const hud = new HUD({ gameState });
- *   hud.setVisible(true);                                  // painel + banner
- *   hud.setPrompt('A / D para andar');                     // null esconde
+ *   hud.setVisible(true);                                       // cartão de objetivo
+ *   hud.setObjective('Objetivo', 'Vá para a área de pesca inicial.');
+ *   hud.setObjective(null);                                     // esconde o cartão
+ *   hud.setPrompt('A / D para andar');                          // null esconde
  *
- *   // no loop de render:
- *   hud.setCompass({ name: 'Ponto 1', distance: 120 });    // null = sem alvo
- *   hud.updatePosition(player.mesh.position);
- *
- *   // ao destruir:
  *   hud.dispose();
+ *
+ * setCompass() e updatePosition() continuam existindo, sem efeito, só para
+ * não quebrar chamadas antigas.
  */
 export class HUD {
-  constructor({ gameState }) {
+  constructor({ gameState = null } = {}) {
     this.gameState = gameState;
-    this._position = { x: 0, z: 0 };
-    this._compass = null;
     this._visible = true;
+    this._objective = null;
     this._promptText = null;
 
-    this.root = document.createElement('div');
-    this.root.style.cssText = `
+    this.card = document.createElement('div');
+    this.card.style.cssText = `
       position: fixed;
-      top: 12px;
-      left: 12px;
-      padding: 8px 12px;
-      background: rgba(0, 0, 0, 0.45);
-      color: #fff;
-      font-family: monospace;
-      font-size: 13px;
-      line-height: 1.5;
+      top: 14px;
+      left: 14px;
+      max-width: 300px;
+      padding: 10px 16px 12px;
+      background: rgba(6, 16, 26, 0.55);
+      border-left: 3px solid #ffd9a0;
       border-radius: 6px;
-      pointer-events: none;
-      white-space: pre;
-      z-index: 10;
-    `;
-    document.body.appendChild(this.root);
-
-    this.banner = document.createElement('div');
-    this.banner.style.cssText = `
-      position: fixed;
-      top: 40%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      padding: 20px 32px;
-      background: rgba(0, 0, 0, 0.6);
       color: #fff;
-      font-family: sans-serif;
-      font-size: 28px;
-      text-align: center;
-      border-radius: 10px;
+      font-family: Georgia, serif;
       pointer-events: none;
       display: none;
       z-index: 10;
     `;
-    this.banner.textContent = 'Você visitou todos os pontos!';
-    document.body.appendChild(this.banner);
+    this.cardTitle = document.createElement('div');
+    this.cardTitle.style.cssText = `
+      font-size: 12px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: #ffd9a0;
+      margin-bottom: 4px;
+    `;
+    this.cardText = document.createElement('div');
+    this.cardText.style.cssText = 'font-size: 17px; line-height: 1.35;';
+    this.card.append(this.cardTitle, this.cardText);
+    document.body.appendChild(this.card);
 
     this.prompt = document.createElement('div');
     this.prompt.style.cssText = `
@@ -88,13 +74,18 @@ export class HUD {
     `;
     document.body.appendChild(this.prompt);
 
-    this._unsubscribe = gameState.onChange(() => this._render());
     this._render();
   }
 
-  /** Mostra/esconde o painel e o banner (o prompt é controlado à parte). */
+  /** Mostra/esconde o cartão de objetivo (o prompt é controlado à parte). */
   setVisible(visible) {
     this._visible = visible;
+    this._render();
+  }
+
+  /** Objetivo/dica atual. `null` (título) esconde o cartão. */
+  setObjective(title, text = '') {
+    this._objective = title ? { title, text } : null;
     this._render();
   }
 
@@ -107,44 +98,23 @@ export class HUD {
     this.prompt.style.display = next ? 'block' : 'none';
   }
 
-  /** Alvo da bússola: { name, distance } ou null. Aparece no próximo render. */
-  setCompass(compass) {
-    this._compass = compass;
-  }
+  /** Mantido por compatibilidade: a bússola agora é só a seta 3D. */
+  setCompass() {}
 
-  /** Chame a cada frame com player.mesh.position (ou qualquer Vector3 com x/z). */
-  updatePosition(position) {
-    this._position = position;
-    this._render();
-  }
+  /** Mantido por compatibilidade: a posição não aparece mais na tela. */
+  updatePosition() {}
 
   _render() {
-    this.root.style.display = this._visible ? 'block' : 'none';
-    if (!this._visible) {
-      this.banner.style.display = 'none';
-      return;
+    const show = this._visible && this._objective;
+    this.card.style.display = show ? 'block' : 'none';
+    if (show) {
+      this.cardTitle.textContent = this._objective.title;
+      this.cardText.textContent = this._objective.text;
     }
-
-    const { phase, inventory, visitedIslands, totalIslands } = this.gameState;
-    const pos = this._position;
-    const compass = this._compass
-      ? `${this._compass.name} · ${Math.round(this._compass.distance)} m`
-      : '—';
-
-    this.root.textContent =
-      `fase: ${phase}\n` +
-      `posição: (${pos.x.toFixed(1)}, ${pos.z.toFixed(1)})\n` +
-      `bússola: ${compass}\n` +
-      `itens: ${inventory.length ? inventory.join(', ') : '—'}\n` +
-      `pontos visitados: ${visitedIslands.size}${totalIslands ? `/${totalIslands}` : ''}`;
-
-    this.banner.style.display = phase === 'won' ? 'block' : 'none';
   }
 
   dispose() {
-    this._unsubscribe();
-    this.root.remove();
-    this.banner.remove();
+    this.card.remove();
     this.prompt.remove();
   }
 }

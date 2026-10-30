@@ -16,6 +16,10 @@ import { DEFAULT_KEYMAP } from '../state/Settings.js';
  *   input.getTurnAxis();        // -1, 0 ou 1  (esquerda = +1, giro do barco)
  *   input.getHorizontalAxis();  // -1, 0 ou 1  (direita = +1, andar no porto 2D)
  *   input.consumeInteract();    // true UMA vez por aperto da tecla de interagir
+ *   input.fishHeld;             // alguma tecla de pescar está pressionada
+ *   input.consumeFishPress();   // true UMA vez por aperto de pescar (ignora auto-repeat)
+ *   input.consumeFishRelease(); // true UMA vez ao soltar a(s) tecla(s) de pescar
+ *   input.consumeStow();        // true UMA vez por aperto de guardar a vara
  *   input.reset();              // solta todas as teclas (use ao trocar de tela)
  *
  *   input.dispose();
@@ -23,8 +27,12 @@ import { DEFAULT_KEYMAP } from '../state/Settings.js';
 export class InputSystem {
   constructor({ settings = null } = {}) {
     this.settings = settings;
-    this.keys = { forward: false, backward: false, left: false, right: false, interact: false };
+    this.keys = { forward: false, backward: false, left: false, right: false, interact: false, fish: false, stow: false };
     this._interactQueued = false;
+    this._fishDown = new Set(); // teclas de pescar seguradas (principal e alternativa)
+    this._fishPressed = false;
+    this._fishReleased = false;
+    this._stowQueued = false;
 
     this._onKeyDown = (event) => this._setKeyState(event.code, true, event.repeat);
     this._onKeyUp = (event) => this._setKeyState(event.code, false, false);
@@ -50,6 +58,20 @@ export class InputSystem {
   _setKeyState(code, isPressed, isRepeat) {
     const action = this._actionFor(code);
     if (!action) return;
+
+    if (action === 'fish') {
+      // duas teclas valem como uma só: aperta ao segurar a 1ª, solta ao soltar a última
+      if (isPressed) {
+        if (isRepeat) return;
+        if (this._fishDown.size === 0) this._fishPressed = true;
+        this._fishDown.add(code);
+      } else if (this._fishDown.delete(code) && this._fishDown.size === 0) {
+        this._fishReleased = true;
+      }
+      this.keys.fish = this._fishDown.size > 0;
+      return;
+    }
+    if (action === 'stow' && isPressed && !isRepeat) this._stowQueued = true;
 
     if (action === 'interact' && isPressed && !isRepeat) this._interactQueued = true;
     this.keys[action] = isPressed;
@@ -93,10 +115,36 @@ export class InputSystem {
     return pressed;
   }
 
+  get fishHeld() {
+    return this._fishDown.size > 0;
+  }
+
+  consumeFishPress() {
+    const value = this._fishPressed;
+    this._fishPressed = false;
+    return value;
+  }
+
+  consumeFishRelease() {
+    const value = this._fishReleased;
+    this._fishReleased = false;
+    return value;
+  }
+
+  consumeStow() {
+    const value = this._stowQueued;
+    this._stowQueued = false;
+    return value;
+  }
+
   /** Solta todas as teclas e descarta apertos pendentes. */
   reset() {
     for (const key of Object.keys(this.keys)) this.keys[key] = false;
     this._interactQueued = false;
+    this._fishDown.clear();
+    this._fishPressed = false;
+    this._fishReleased = false;
+    this._stowQueued = false;
   }
 
   dispose() {

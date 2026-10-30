@@ -9,18 +9,20 @@ import * as THREE from 'three';
  * Fases (phase):
  *   'off'      → fora do modo de pesca
  *   'pickup'   → o marinheiro abaixa e pega a vara
- *   'ready'    → vara na mão; segurar G/H para carregar
+ *   'ready'    → vara na mão; segurar a tecla de pescar para carregar
  *   'charging' → segurando: a barra de força sobe (verde → vermelho = fortíssimo)
  *   'casting'  → soltou: lança; a boia voa até a água
  *   'waiting'  → espera de 4 a 7 s até o peixe fisgar
- *   'qte'      → quicktime: apertar G/H com o ponteiro dentro da zona verde
+ *   'qte'      → quicktime: apertar a tecla de pescar com o ponteiro dentro da zona verde
  *   'reel'     → recolher: segurar para puxar, soltar para dar linha, mantendo
  *                o ponteiro no meio; se sair da zona por tempo demais, a isca solta
  *   'result'   → pescou / a isca soltou (alguns segundos)
  *   'putaway'  → guarda a vara e sai do modo
  *
  * Uso:
- *   const fishing = new FishingSystem({ input, sailor, rig, ui, ocean, boat });
+ *   const fishing = new FishingSystem({ input, sailor, rig, ui, ocean, boat, keys });
+ *   // input = InputSystem (fishHeld, consumeFishPress/Release, consumeStow)
+ *   // keys = { fish: () => 'G', stow: () => 'Q' } (nomes das teclas para as dicas)
  *   fishing.start();              // entra no modo (barco parado na zona)
  *   fishing.update(delta, elapsed);   // todo frame (também com o modo desligado)
  *   fishing.active                // true enquanto pesca
@@ -63,7 +65,8 @@ const rand = (min, max) => min + Math.random() * (max - min);
 const clamp01 = (x) => Math.min(Math.max(x, 0), 1);
 
 export class FishingSystem {
-  constructor({ input, sailor, rig, ui, ocean = null, boat }) {
+  constructor({ input, sailor, rig, ui, ocean = null, boat, keys = null }) {
+    this.keys = keys ?? { fish: () => 'G', stow: () => 'Q' };
     this.input = input;
     this.sailor = sailor;
     this.rig = rig;
@@ -137,10 +140,10 @@ export class FishingSystem {
     this.sailor.setMode('ready');
     this.sailor.setCrank(false);
     this.sailor.setTension(0);
-    this.input.consumePress();
-    this.input.consumeRelease();
+    this.input.consumeFishPress();
+    this.input.consumeFishRelease();
     this.focusDistance = 6;
-    this.ui.setHint('Segure G ou H para lançar  ·  Esc guarda a vara');
+    this.ui.setHint(`Segure ${this.keys.fish()} para lançar  ·  ${this.keys.stow()} guarda a vara`);
     this._setPhase('ready');
   }
 
@@ -167,20 +170,20 @@ export class FishingSystem {
   }
 
   _updatePickup() {
-    this.input.consumePress();
+    this.input.consumeFishPress();
     if (this.sailor.isReady) this._toReady();
   }
 
   _updateReady() {
-    if (this.input.consumeExit()) {
+    if (this.input.consumeStow()) {
       this.ui.setHint('');
       this.sailor.putAway();
       this._setPhase('putaway');
       return;
     }
-    if (this.input.consumePress()) {
+    if (this.input.consumeFishPress()) {
       this._power = 0;
-      this.input.consumeRelease();
+      this.input.consumeFishRelease();
       this.ui.showPower();
       this.ui.setPower(0);
       this.ui.setHint('Solte para lançar');
@@ -193,8 +196,8 @@ export class FishingSystem {
     this.sailor.setCharge(this._power);
     this.ui.setPower(this._power);
 
-    if (this.input.consumeRelease() || !this.input.held) {
-      this.input.consumeRelease();
+    if (this.input.consumeFishRelease() || !this.input.fishHeld) {
+      this.input.consumeFishRelease();
       if (this._power < MIN_POWER) {
         // soltou cedo demais: não lança
         this.ui.hidePower();
@@ -235,10 +238,10 @@ export class FishingSystem {
 
   _updateWaiting(delta) {
     this._timer += delta;
-    this.input.consumePress(); // apertar à toa não faz nada
-    this.input.consumeRelease();
+    this.input.consumeFishPress(); // apertar à toa não faz nada
+    this.input.consumeFishRelease();
 
-    if (this.input.consumeExit()) {
+    if (this.input.consumeStow()) {
       // recolhe a linha vazia e volta para a vara pronta
       this._toReady();
       return;
@@ -267,9 +270,9 @@ export class FishingSystem {
     this.sailor.jerk();
     this.ui.showGauge('qte');
     this.ui.setGauge({ pointer: 0, zoneCenter: this._qte.zoneCenter, zoneWidth: QTE.zoneWidth });
-    this.ui.setHint('Peixe fisgou! Aperte G ou H com o ponteiro na zona verde!');
+    this.ui.setHint(`Peixe fisgou! Aperte ${this.keys.fish()} com o ponteiro na zona verde!`);
     this.ui.flash('FISGOU!', 'bite');
-    this.input.consumePress();
+    this.input.consumeFishPress();
     this._setPhase('qte');
   }
 
@@ -282,7 +285,7 @@ export class FishingSystem {
     if (q.pointer <= 0) { q.pointer = 0; q.dir = 1; q.passes += 1; }
     this.ui.setGauge({ pointer: q.pointer });
 
-    if (this.input.consumePress()) {
+    if (this.input.consumeFishPress()) {
       const half = QTE.zoneWidth / 2;
       const offset = Math.abs(q.pointer - q.zoneCenter);
       if (offset <= half) {
@@ -322,16 +325,16 @@ export class FishingSystem {
     this.ui.showGauge('reel');
     this.ui.setGauge({ zoneCenter: 0.5, zoneWidth: REEL.zoneHalf * 2, pointer: 0.5, fishX: 0.5, danger: 0 });
     this.ui.setProgress(this._reel.progress);
-    this.ui.setHint('Segure G ou H para puxar  ·  solte para dar linha  ·  mantenha o ponteiro no meio');
+    this.ui.setHint(`Segure ${this.keys.fish()} para puxar  ·  solte para dar linha  ·  mantenha o ponteiro no meio`);
     this.sailor.setMode('reel');
     this._setPhase('reel');
   }
 
   _updateReel(delta, elapsed) {
     const r = this._reel;
-    const held = this.input.held;
-    this.input.consumePress();
-    this.input.consumeRelease();
+    const held = this.input.fishHeld;
+    this.input.consumeFishPress();
+    this.input.consumeFishRelease();
 
     // o peixe puxa para um lado e para o outro, em arrancadas
     r.forceTimer -= delta;
@@ -392,8 +395,8 @@ export class FishingSystem {
     this.ui.hideGauge();
     this.sailor.setCrank(false);
     this.sailor.setTension(0);
-    this.input.consumePress();
-    this.input.consumeRelease();
+    this.input.consumeFishPress();
+    this.input.consumeFishRelease();
 
     if (caught) {
       const fish = this._fish;
@@ -421,13 +424,13 @@ export class FishingSystem {
 
   _updateResult(delta) {
     this._timer += delta;
-    this.input.consumePress();
-    this.input.consumeRelease();
+    this.input.consumeFishPress();
+    this.input.consumeFishRelease();
     if (this._timer >= REEL.resultTime) this._toReady();
   }
 
   _updatePutAway() {
-    this.input.consumePress();
+    this.input.consumeFishPress();
     if (this.sailor.isStowed) {
       this.rig.hide();
       this.ui.hideAll();

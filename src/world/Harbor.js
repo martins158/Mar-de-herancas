@@ -70,7 +70,7 @@ const NPC_DEFS = [
     name: 'Dona Iracema',
     x: 6.8,
     facing: -1,
-    look: { coat: '#3a3340', skirt: '#2d2833', shawl: '#6a5a78', hair: '#2d2833', scale: 0.92, stoop: 0.07 },
+    look: { coat: '#3a3340', skirt: '#2d2833', shawl: '#6a5a78', hair: '#3a2c26', hairStyle: 'back', scale: 0.92, stoop: 0.07 },
   },
   {
     id: 'pai',
@@ -444,12 +444,14 @@ export class Harbor {
 
   /**
    * Desenha uma pessoa (olhando para +x; vira com scale.x negativo).
-   * look: { coat, pants, skirt, shawl, hair, bun, hat:{type,color}, beard,
+   * look: { coat, pants, skirt, shawl, hair, hairStyle, bun, hat:{type,color}, beard,
    *         cane, lantern, scale, stoop }
+   * hairStyle: 'back' = cabelo preso atrás (franja no topo + coque baixo);
+   * sem hairStyle, `hair` desenha o círculo antigo (usado pela Mãe).
    */
   _makeFigure(look) {
     const {
-      coat, pants = '#2a2a32', skirt = null, shawl = null, hair = null, bun = false,
+      coat, pants = '#2a2a32', skirt = null, shawl = null, hair = null, hairStyle = null, bun = false,
       hat = null, beard = null, cane = false, lantern = false, stoop = 0,
     } = look;
     const skin = '#e5b98f';
@@ -478,7 +480,20 @@ export class Harbor {
 
     upper.add(circle(0.34, skin, 0, 1.4, 0.02)); // cabeça
     upper.add(circle(0.05, '#2a2a32', 0.14, 1.42, 0.03)); // olho
-    if (hair) upper.add(circle(0.36, hair, -0.05, 1.48, 0.012));
+    if (hair && hairStyle === 'back') {
+      // cabelo preso: massa atrás da cabeça, franja no topo e coque baixo na nuca
+      upper.add(circle(0.35, hair, -0.07, 1.43, 0.012));
+      const cap = [];
+      for (let a = 10; a <= 175; a += 15) {
+        const r = (a * Math.PI) / 180;
+        cap.push([0.355 * Math.cos(r), 1.4 + 0.355 * Math.sin(r)]);
+      }
+      cap.push([-0.3, 1.5], [-0.1, 1.57], [0.12, 1.6], [0.3, 1.52]);
+      upper.add(poly(cap, hair, 0.022));
+      upper.add(circle(0.14, hair, -0.32, 1.28, 0.011));
+    } else if (hair) {
+      upper.add(circle(0.36, hair, -0.05, 1.48, 0.012));
+    }
     if (bun) upper.add(circle(0.17, hair, -0.3, 1.72, 0.011));
     if (beard) upper.add(poly([[0.02, 1.28], [0.32, 1.28], [0.26, 0.9], [0.02, 0.86]], beard, 0.025));
 

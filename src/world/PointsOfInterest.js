@@ -3,13 +3,15 @@ import * as THREE from 'three';
 
 /**
  * PointsOfInterest
- * Substitui as ilhas-obstáculo: são marcadores no mar SEM colisão (uma
- * boia + facho de luz + anel mostrando a área de chegada). O barco passa
- * por cima; "visitar" = entrar no anel (distância horizontal menor que
- * triggerRadius).
+ * Marcadores no mar SEM colisão: cada ponto é só um ARO (fita fina) que
+ * mostra a área de chegada e acompanha a altura das ondas. O barco passa por
+ * cima; "visitar" = entrar no aro (distância horizontal menor que o raio).
  *
  * Não guarda o progresso: quem sabe o que já foi visitado é o GameState.
  * Por isso os métodos recebem um `isVisited(id)`.
+ *
+ * O raio do aro é o mesmo do gatilho (padrão 15 = os 12 antigos + 25%) e fica
+ * em `point.radius`: use esse valor no main.js em vez de um número fixo.
  *
  * Uso:
  *   const pois = new PointsOfInterest();
@@ -17,15 +19,20 @@ import * as THREE from 'three';
  *   gameState.onChange(() => pois.refresh((id) => gameState.hasVisited(id)));
  *
  *   // no loop de render:
- *   pois.update(elapsed, ocean);   // boia acompanha as ondas
+ *   pois.update(elapsed, ocean);   // o aro acompanha as ondas
  *   for (const p of pois.getReached(boat.position, isVisited)) gameState.visitIsland(p.id);
  *   const alvo = pois.getNearestUnvisited(boat.position, isVisited);
  */
+
+const RING_SEGMENTS = 96;
+const RING_WIDTH = 0.5; // largura da fita
+const RING_LIFT = 0.3; // sobe um pouco acima da água para não afundar na crista
+
 export class PointsOfInterest {
-  constructor({ positions, triggerRadius = 12 } = {}) {
+  constructor({ positions, triggerRadius = 15 } = {}) {
     this.triggerRadius = triggerRadius;
     this.points = (positions ?? PointsOfInterest.defaultLayout()).map((position, index) =>
-      this._createBeacon(position, `poi-${index}`, `Ponto ${index + 1}`)
+      this._createRing(position, `poi-${index}`, `Ponto ${index + 1}`)
     );
   }
 
@@ -38,67 +45,81 @@ export class PointsOfInterest {
     ];
   }
 
-  _createBeacon(position, id, name) {
+  _createRing(position, id, name) {
+    const radius = this.triggerRadius;
     const group = new THREE.Group();
-    group.position.set(position.x, 0, position.z);
 
-    // facho de luz (aberto, translúcido)
-    const pillarMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffd27a,
-      transparent: true,
-      opacity: 0.3,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    });
-    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(1, 1.6, 40, 16, 1, true), pillarMaterial);
-    pillar.position.y = 20;
-    group.add(pillar);
+    // fita em volta do círculo: 2 vértices por segmento (borda de dentro e de fora)
+    const positions = new Float32Array((RING_SEGMENTS + 1) * 2 * 3);
+    const indices = [];
+    for (let i = 0; i < RING_SEGMENTS; i++) {
+      const a = i * 2;
+      indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setIndex(indices);
 
-    // boia
-    const buoyMaterial = new THREE.MeshBasicMaterial({ color: 0xe8503a });
-    const buoy = new THREE.Mesh(new THREE.SphereGeometry(1.4, 16, 12), buoyMaterial);
-    buoy.position.y = 0.4;
-    group.add(buoy);
-
-    // anel da área de chegada
     const ringMaterial = new THREE.MeshBasicMaterial({
       color: 0xffd27a,
       transparent: true,
-      opacity: 0.55,
+      opacity: 0.7,
       depthWrite: false,
+      side: THREE.DoubleSide,
     });
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(this.triggerRadius, 0.25, 8, 64), ringMaterial);
-    ring.rotation.x = Math.PI / 2;
-    ring.position.y = 0.4;
+    const ring = new THREE.Mesh(geometry, ringMaterial);
+    ring.frustumCulled = false; // os vértices estão em coordenadas do mundo
+    ring.renderOrder = 3;
     group.add(ring);
 
-    return {
+    const point = {
       id,
       name,
+      radius,
       position: new THREE.Vector3(position.x, 0, position.z),
       mesh: group,
-      _materials: { pillarMaterial, buoyMaterial, ringMaterial },
+      _ring: ring,
+      _materials: { ringMaterial },
     };
+    this._writeRing(point, null);
+    return point;
+  }
+
+  /** Preenche os vértices da fita, na altura da água em cada ponto do círculo. */
+  _writeRing(point, ocean) {
+    const attr = point._ring.geometry.attributes.position;
+    const half = RING_WIDTH / 2;
+    for (let i = 0; i <= RING_SEGMENTS; i++) {
+      const angle = (i / RING_SEGMENTS) * Math.PI * 2;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      for (let side = 0; side < 2; side++) {
+        const r = point.radius + (side === 0 ? -half : half);
+        const x = point.position.x + cos * r;
+        const z = point.position.z + sin * r;
+        const y = (ocean ? ocean.getHeightAt(x, z) : 0) + RING_LIFT;
+        attr.setXYZ(i * 2 + side, x, y, z);
+      }
+    }
+    attr.needsUpdate = true;
   }
 
   addTo(scene) {
     for (const point of this.points) scene.add(point.mesh);
   }
 
-  /** Faz as boias subirem e descerem com as ondas. */
+  /** Faz o aro subir e descer com as ondas. */
   update(elapsed, ocean) {
     if (!ocean) return;
-    for (const point of this.points) {
-      point.mesh.position.y = ocean.getHeightAt(point.position.x, point.position.z);
-    }
+    for (const point of this.points) this._writeRing(point, ocean);
   }
 
-  /** Pontos cujo anel contém a posição e que ainda não foram visitados. */
+  /** Pontos cujo aro contém a posição e que ainda não foram visitados. */
   getReached(position, isVisited) {
     return this.points.filter(
       (point) =>
         !isVisited(point.id) &&
-        Math.hypot(position.x - point.position.x, position.z - point.position.z) < this.triggerRadius
+        Math.hypot(position.x - point.position.x, position.z - point.position.z) < point.radius
     );
   }
 
@@ -117,25 +138,21 @@ export class PointsOfInterest {
     return nearest;
   }
 
-  /** Atualiza as cores: visitado = verde e mais discreto. */
+  /** Atualiza a cor do aro: visitado = verde e mais discreto. */
   refresh(isVisited) {
     for (const point of this.points) {
       const visited = isVisited(point.id);
-      const { pillarMaterial, buoyMaterial, ringMaterial } = point._materials;
-      pillarMaterial.color.set(visited ? 0x6fe08a : 0xffd27a);
-      pillarMaterial.opacity = visited ? 0.12 : 0.3;
+      const { ringMaterial } = point._materials;
       ringMaterial.color.set(visited ? 0x6fe08a : 0xffd27a);
-      ringMaterial.opacity = visited ? 0.25 : 0.55;
-      buoyMaterial.color.set(visited ? 0x4caf50 : 0xe8503a);
+      ringMaterial.opacity = visited ? 0.35 : 0.7;
     }
   }
 
   dispose() {
     for (const point of this.points) {
-      point.mesh.traverse((child) => {
-        child.geometry?.dispose();
-        child.material?.dispose();
-      });
+      point._ring.geometry.dispose();
+      point._materials.ringMaterial.dispose();
+      point.mesh.removeFromParent();
     }
   }
 }
