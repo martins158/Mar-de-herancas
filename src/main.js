@@ -50,12 +50,12 @@ settings.onChange((s) => engine.setRenderScale(s.renderScale));
 const skybox = new Skybox();
 skybox.addTo(sceneManager.scene);
 
-const ocean = new Ocean();
-ocean.addTo(sceneManager.scene);
-
 // o porto de casa em 3D (cais de madeira, vila e farol): o barco nasce ao lado dele
 const pier = new HarborPier3D();
 pier.addTo(sceneManager.scene);
+
+const ocean = new Ocean({ island: HarborPier3D.ISLAND_CONFIG });
+ocean.addTo(sceneManager.scene);
 
 // o barco não atravessa o cais, os pilares, os cascos velhos nem a terra
 const collider = new BoatCollider();
@@ -91,6 +91,7 @@ pois.refresh(isVisited);
 const player = new Player({
   position: new THREE.Vector3(0, 0.6, 0),
   input,
+  ocean, // o barco flutua nas ondas (PhysicsSystem)
 });
 player.addTo(sceneManager.scene);
 
@@ -219,6 +220,7 @@ engine.start((delta, elapsed) => {
       Math.cos(angle) * 24
     );
     sceneManager.camera.lookAt(0, 2, 0);
+    player.float(delta); // o barco boia atrás do menu
     compass.update(delta, player.mesh.position, null);
     skybox.update(sceneManager.camera.position);
     return;
@@ -259,6 +261,8 @@ engine.start((delta, elapsed) => {
   if (!fishing.active) {
     player.update(delta);
     collider.resolve(player.mesh.position, player.mesh.rotation.y);
+  } else {
+    player.float(delta); // parado, mas ainda boiando nas ondas
   }
 
   // parado na zona: a tecla de pescar entra no modo de pescaria

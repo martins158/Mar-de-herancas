@@ -1,22 +1,4 @@
 // src/systems/BoatCollider.js
-
-/**
- * BoatCollider
- * Colisão do barco contra sólidos estáticos (cais, pilares, cascos velhos, terra).
- * Tudo no plano XZ: os sólidos são caixas alinhadas aos eixos e círculos; o
- * barco é uma fileira de círculos ao longo do casco (proa fina, meio largo).
- * Não impede o movimento: depois que o barco anda, resolve() empurra a posição
- * para fora do que ele atravessou, então ele escorrega pelas paredes.
- *
- * Uso:
- *   const collider = new BoatCollider();
- *   collider.addObstacles(pier.getObstacles());
- *
- *   // no loop, logo depois de player.update(delta):
- *   collider.resolve(player.mesh.position, player.mesh.rotation.y);
- */
-
-// círculos do casco: z local (-Z = proa) e raio
 const DEFAULT_HULL = [
   { z: -2.6, r: 0.6 },
   { z: -0.9, r: 1.1 },
@@ -30,6 +12,7 @@ export class BoatCollider {
     this.iterations = iterations;
     this.boxes = [];
     this.circles = [];
+    this.ellipses = []; // elipses cheias (ilha oval)
   }
 
   addBox(minX, maxX, minZ, maxZ) {
@@ -40,16 +23,17 @@ export class BoatCollider {
     this.circles.push({ x, z, r });
   }
 
-  /** Aceita o formato de HarborPier3D.getObstacles(). */
-  addObstacles({ boxes = [], circles = [] } = {}) {
-    for (const b of boxes) this.addBox(b.minX, b.maxX, b.minZ, b.maxZ);
-    for (const c of circles) this.addCircle(c.x, c.z, c.r);
+  /** Elipse cheia (ilha), alinhada aos eixos: centro (x, z), semieixos rx e rz. */
+  addEllipse(x, z, rx, rz) {
+    this.ellipses.push({ x, z, rx, rz });
   }
 
-  /**
-   * Empurra `position` (Vector3, modificado no lugar) para fora dos sólidos.
-   * Devolve true se houve contato.
-   */
+  addObstacles({ boxes = [], circles = [], ellipses = [] } = {}) {
+    for (const b of boxes) this.addBox(b.minX, b.maxX, b.minZ, b.maxZ);
+    for (const c of circles) this.addCircle(c.x, c.z, c.r);
+    for (const e of ellipses) this.addEllipse(e.x, e.z, e.rx, e.rz);
+  }
+
   resolve(position, yaw) {
     const sin = Math.sin(yaw);
     const cos = Math.cos(yaw);
@@ -59,7 +43,6 @@ export class BoatCollider {
       let moved = false;
 
       for (const part of this.hull) {
-        // centro do círculo no mundo (z local → mundo: (z·sin, z·cos))
         const cx = position.x + part.z * sin;
         const cz = position.z + part.z * cos;
 
@@ -68,6 +51,9 @@ export class BoatCollider {
         }
         for (const c of this.circles) {
           if (this._pushFromCircle(position, cx, cz, part.r, c)) moved = true;
+        }
+        for (const e of this.ellipses) {
+          if (this._pushFromEllipse(position, cx, cz, part.r, e)) moved = true;
         }
       }
 
@@ -93,7 +79,6 @@ export class BoatCollider {
       return true;
     }
 
-    // centro dentro da caixa: sai pelo lado mais perto
     const left = cx - b.minX;
     const right = b.maxX - cx;
     const near = cz - b.minZ;
@@ -103,6 +88,27 @@ export class BoatCollider {
     else if (min === right) position.x += right + r;
     else if (min === near) position.z -= near + r;
     else position.z += far + r;
+    return true;
+  }
+
+  /** Empurra o círculo (cx, cz, r) para fora da elipse cheia, pela normal do contorno. */
+  _pushFromEllipse(position, cx, cz, r, e) {
+    const dx = cx - e.x;
+    const dz = cz - e.z;
+    const d = Math.sqrt((dx * dx) / (e.rx * e.rx) + (dz * dz) / (e.rz * e.rz));
+    if (d < 1e-6) {
+      position.x += e.rx + r;
+      return true;
+    }
+    // gradiente de d: aproxima a distância assinada até o contorno por (d - 1) / |grad|
+    const gx = dx / (e.rx * e.rx * d);
+    const gz = dz / (e.rz * e.rz * d);
+    const g = Math.hypot(gx, gz);
+    const signed = (d - 1) / g;
+    if (signed >= r) return false;
+    const push = r - signed;
+    position.x += (gx / g) * push;
+    position.z += (gz / g) * push;
     return true;
   }
 

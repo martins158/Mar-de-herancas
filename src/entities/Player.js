@@ -1,5 +1,6 @@
 // src/entities/Player.js
 import * as THREE from 'three';
+import { FloatingBody } from '../systems/PhysicsSystem.js';
 
 /**
  * Player
@@ -255,6 +256,8 @@ export class Player {
 
     this._level = 0;
     this._forward = new THREE.Vector3();
+    // com `ocean`: flutuação física (mola + restrição: água nunca entra no barco)
+    this.body = ocean ? new FloatingBody({ ocean }) : null;
   }
 
   static createBoatMesh() {
@@ -453,8 +456,22 @@ export class Player {
     this._updateBuoyancy(delta, turnAxis);
   }
 
+  /** Só a flutuação, sem mover o barco (pescaria, menu). */
+  float(delta) {
+    this._updateBuoyancy(delta, 0);
+  }
+
   /** Faz o visual do barco acompanhar a altura e a inclinação da água. */
   _updateBuoyancy(delta, turnAxis) {
+    if (this.body) {
+      const { x, z } = this.mesh.position;
+      const { level, pitch, roll } = this.body.update(delta, x, z, this.mesh.rotation.y, turnAxis);
+      this._level = level;
+      this.boat.rotation.x = pitch;
+      this.boat.rotation.z = roll;
+      this.boat.position.y = level - this.mesh.position.y;
+      return;
+    }
     const smooth = 1 - Math.exp(-5 * delta);
     let level = 0;
     let pitch = 0;

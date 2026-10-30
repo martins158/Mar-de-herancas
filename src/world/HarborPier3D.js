@@ -10,7 +10,8 @@ import * as THREE from 'three';
  *
  * Layout (o barco nasce em (0, 0.6, 0), olhando para -Z):
  *   - o cais sai da praia (x = -34) e acaba em x = -4, a ~4 m do barco;
- *   - a terra fica em x < -34; o farol em (-48, -66).
+ *   - a terra é uma ILHA OVAL pequena a oeste do cais (ISLAND_L); a vila, as
+ *     colinas (as "grandes rochas") e o farol ficam dentro dela.
  * O porto inteiro é escalado por HARBOR_SCALE em torno do fim do cais (o fim do
  * cais continua a ~4 m do barco; o resto encolhe). Os sólidos (terra, cais com
  * pilares e os dois cascos velhos) saem de getObstacles(), já em coordenadas do
@@ -24,20 +25,26 @@ import * as THREE from 'three';
  *   pier.dispose();
  */
 
-const DECK_Y = 1.6; // altura do convés sobre a água
-const PIER_X0 = -34;
+const DECK_Y = 3.4; // altura do convés (local; com a escala 0,6 fica ~2 m acima da água)
+const PIER_X0 = -36;
 const PIER_X1 = -4;
 const PIER_Z = -3;
 const PIER_W = 3.2;
-const LAND_TOP = 1.4;
+const LAND_TOP = 4.0; // topo da ilha (local): acima das cristas mesmo sem amortecimento
+const BEACH_TOP = 1.0; // praia quase ao nível da água
 
 /** Quanto o porto encolhe (1 = tamanho original). O fim do cais fica no lugar. */
 export const HARBOR_SCALE = 0.6;
 const PIVOT_X = PIER_X1;
 const PIVOT_Z = PIER_Z;
 
+// ilha oval, em coordenadas locais (antes da escala): centro e semieixos
+const ISLAND_L = { x: -82, z: -13, rx: 50, rz: 33 };
+const SAND_K = 1.12; // a praia é a elipse da ilha x 1,12
+const PLATEAU_K = 0.93; // o platô (onde ficam as casas) é x 0,93
+const HOUSE_K = 0.8; // casas menores que as originais
+
 // sólidos, em coordenadas locais (antes da escala)
-const LAND_BOX = { minX: -154, maxX: -34, minZ: -100, maxZ: 40 };
 const PIER_BOX = {
   minX: PIER_X0,
   maxX: PIER_X1 + 0.5,
@@ -46,7 +53,7 @@ const PIER_BOX = {
 };
 const WRECKS = [
   { x: -16, z: -10, yaw: 0.35 },
-  { x: -27, z: 4.5, yaw: -0.2 },
+  { x: -24, z: 7, yaw: -0.2 },
 ];
 
 /** Gerador pseudoaleatório determinístico (o cenário é sempre igual). */
@@ -144,22 +151,34 @@ export class HarborPier3D {
   // ---------- construção ----------
 
   _buildLand() {
-    // terra firme à esquerda (x < -34), com uma faixa de areia na beira
-    const land = new THREE.Mesh(new THREE.BoxGeometry(120, 8, 140), this._std('#3d3a33', { roughness: 1 }));
-    land.position.set(-94, LAND_TOP - 4, -30);
+    const { x, z, rx, rz } = ISLAND_L;
+
+    // praia de areia, quase ao nível da água, em volta do platô
+    const beach = new THREE.Mesh(
+      new THREE.CylinderGeometry(SAND_K, SAND_K + 0.1, 6, 72),
+      this._std('#8d7a5a', { roughness: 1 })
+    );
+    beach.scale.set(rx, 1, rz);
+    beach.position.set(x, BEACH_TOP - 3, z);
+    beach.receiveShadow = true;
+    this.group.add(beach);
+
+    // platô da ilha (oval)
+    const land = new THREE.Mesh(
+      new THREE.CylinderGeometry(PLATEAU_K, PLATEAU_K + 0.1, 8, 72),
+      this._std('#3d3a33', { roughness: 1 })
+    );
+    land.scale.set(rx, 1, rz);
+    land.position.set(x, LAND_TOP - 4, z);
     land.receiveShadow = true;
     this.group.add(land);
 
-    const beach = new THREE.Mesh(new THREE.BoxGeometry(5, 0.4, 140), this._std('#8d7a5a', { roughness: 1 }));
-    beach.position.set(-36.5, LAND_TOP - 0.15, -30);
-    this.group.add(beach);
-
-    // colinas escuras ao fundo, como no porto 2D
+    // as grandes colinas escuras ao fundo (menores e dentro da ilha)
     const hillMat = this._std('#3b3d66', { roughness: 1 });
-    for (const [x, z, r] of [[-125, -30, 38], [-112, -78, 30], [-132, 18, 28]]) {
+    for (const [hx, hz, r] of [[-112, 4, 18], [-116, -22, 13], [-98, 14, 9]]) {
       const hill = new THREE.Mesh(new THREE.SphereGeometry(r, 18, 10), hillMat);
       hill.scale.y = 0.45;
-      hill.position.set(x, -2, z);
+      hill.position.set(hx, LAND_TOP - 2, hz);
       this.group.add(hill);
     }
   }
@@ -315,13 +334,19 @@ export class HarborPier3D {
 
   _buildVillage() {
     // as mesmas casas e cores do porto 2D, de frente para o mar (porta virada para +x)
-    const houses = [
-      { x: -41, z: -8, d: 6, l: 7.5, h: 5, wall: '#a8734f', roof: '#4a2f2a' },
-      { x: -42, z: -22, d: 6, l: 7, h: 6.2, wall: '#7d8fa3', roof: '#35404f' },
-      { x: -40, z: -37, d: 5, l: 6, h: 4.4, wall: '#c29a5b', roof: '#5a3a2e' },
-      { x: -43, z: -52, d: 6, l: 8, h: 5.4, wall: '#8b5e4b', roof: '#2f3a46' },
-      { x: -41, z: 10, d: 5.5, l: 6, h: 4, wall: '#9a8f7a', roof: '#4a2f2a' },
+    const base = [
+      { z: -33, d: 6, l: 7.5, h: 5, wall: '#a8734f', roof: '#4a2f2a' },
+      { z: -21, d: 6, l: 7, h: 6.2, wall: '#7d8fa3', roof: '#35404f' },
+      { z: -10, d: 5, l: 6, h: 4.4, wall: '#c29a5b', roof: '#5a3a2e' },
+      { z: 9, d: 5.5, l: 6, h: 4, wall: '#9a8f7a', roof: '#4a2f2a' },
     ];
+    // cada casa fica na borda leste do platô, com a fachada voltada para o mar
+    const { x: cx, z: cz, rx, rz } = ISLAND_L;
+    const houses = base.map((h) => {
+      const d = h.d * HOUSE_K;
+      const edge = cx + PLATEAU_K * rx * Math.sqrt(1 - ((h.z - cz) / (PLATEAU_K * rz)) ** 2);
+      return { ...h, d, l: h.l * HOUSE_K, h: h.h * HOUSE_K, x: edge - 1.2 - d / 2 };
+    });
 
     const beam = this._std('#3b2a20');
     const windowMat = new THREE.MeshBasicMaterial({ color: '#ffd47a' });
@@ -377,7 +402,8 @@ export class HarborPier3D {
 
   _buildLighthouse() {
     const g = new THREE.Group();
-    g.position.set(-48, LAND_TOP, -66);
+    g.position.set(-96, LAND_TOP, -34);
+    g.scale.setScalar(0.8);
 
     const tower = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 2.5, 16, 14), this._std('#e8e0d0'));
     tower.position.y = 8;
@@ -421,7 +447,7 @@ export class HarborPier3D {
 
   /**
    * Sólidos do porto em coordenadas do mundo (já com a escala), no plano XZ:
-   * { boxes: [{ minX, maxX, minZ, maxZ }], circles: [{ x, z, r }] }
+   * { boxes: [{ minX, maxX, minZ, maxZ }], circles: [{ x, z, r }], ellipses: [{ x, z, rx, rz }] }
    */
   getObstacles() {
     const toX = (x) => PIVOT_X + (x - PIVOT_X) * HARBOR_SCALE;
@@ -439,7 +465,7 @@ export class HarborPier3D {
         });
       }
     }
-    return { boxes: [box(LAND_BOX), box(PIER_BOX)], circles };
+    return { boxes: [box(PIER_BOX)], circles, ellipses: [HarborPier3D.ISLAND_CONFIG] };
   }
 
   addTo(scene) {
@@ -466,5 +492,19 @@ export class HarborPier3D {
     this.group.removeFromParent();
   }
 }
+
+/**
+ * Elipse da ilha em coordenadas do MUNDO (praia incluída), já com a escala.
+ * Usada na colisão do barco e para acalmar as ondas perto da costa
+ * (new Ocean({ island: HarborPier3D.ISLAND_CONFIG })). `fall` = a quantos raios
+ * da ilha o mar volta a ter 100% das ondas.
+ */
+HarborPier3D.ISLAND_CONFIG = {
+  x: PIVOT_X + (ISLAND_L.x - PIVOT_X) * HARBOR_SCALE,
+  z: PIVOT_Z + (ISLAND_L.z - PIVOT_Z) * HARBOR_SCALE,
+  rx: ISLAND_L.rx * SAND_K * HARBOR_SCALE,
+  rz: ISLAND_L.rz * SAND_K * HARBOR_SCALE,
+  fall: 2.5,
+};
 
 export default HarborPier3D;
