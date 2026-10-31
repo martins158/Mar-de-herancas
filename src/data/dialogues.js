@@ -25,17 +25,18 @@ const DIALOGUES = {
   mae: {
     name: 'Mãe',
     lines: [
-      { text: 'Você levantou antes do sol de novo. Seu pai fazia isso... até o dia em que parou de ter pra onde ir.' },
-      { text: 'Eu também não dormi. A casa fica grande demais de madrugada, filho. Cada tábua estala como se lembrasse de alguém.' },
-      { text: 'Lembra do cheiro que vinha da cozinha? Peixe na brasa, pão, café. Hoje a maresia entra pelas frestas e só traz cheiro de coisa parada.' },
-      { speaker: YOU, text: 'A senhora ainda guarda a rede dele, não guarda?' },
-      { text: 'Guardo. Dobrada, no baú. Não pra usar. Pra não ter que decidir que acabou.' },
-      { text: 'Seu pai não diz, mas eu vejo. Ele passa horas olhando o barco como quem olha um amigo que o traiu... e que ele ainda ama.' },
-      { text: 'Eu não vou te pedir pra ficar. Já pedi demais a esse mar, e ele nunca respondeu.' },
-      { text: 'Vai falar com ele, filho. E depois vai. Mas me promete uma coisa: o que quer que você encontre lá fora, não deixa te ensinar a calar como a gente aprendeu.' },
+      { text: 'Já de pé? Nem o galo levantou ainda.' },
+      { text: 'Fiz café. Passei duas vezes no coador, o pó anda rendendo pouco... mas rende.' },
+      { text: 'Eu não dormi. Essa casa estala a noite inteira. Antes eu achava que era vento.' },
+      { text: 'Sabe que ainda faço comida pra três? Quando vejo, já tá no fogo. Aí a gente come devagar, pra não sobrar.' },
+      { speaker: YOU, text: 'A senhora ainda guarda a rede do pai, não guarda?' },
+      { text: 'Guardo. Dobrada, no baú, com cânfora. Não é pra usar. É pra... sei lá. Pra não ter que decidir.' },
+      { text: 'Seu pai não fala. Passa a tarde olhando o barco. Eu fiquei com raiva dele um tempo, sabe? Agora só tenho pena. E isso é pior.' },
+      { text: 'Eu não vou te pedir pra ficar. Já pedi coisa demais pra esse mar e ele nunca me respondeu.' },
+      { text: 'Vai falar com ele. E, filho... o que você achar lá fora, conta pra mim. Mesmo que seja ruim. Aqui a gente se acostumou a não contar nada.' },
     ],
     repeat: [
-      { text: 'Vai, meu filho. Ele está lá no fim do cais, esperando você ter coragem. Os dois estão.' },
+      { text: 'Vai, meu filho. Ele tá lá no fim do cais. Faz tempo que ensaia o que vai te dizer.' },
     ],
   },
 
@@ -43,14 +44,15 @@ const DIALOGUES = {
   anselmo: {
     name: 'Seu Anselmo',
     lines: [
-      { text: 'Quarenta e dois anos jogando rede nessa água. Sabe o que eu puxei ontem? Alga, uma bota e um pedaço de remo que nem era nosso.' },
-      { text: 'O mar começou a devolver o lixo da gente, rapaz. É assim que ele diz que cansou de nós.' },
-      { text: 'Olha aqueles cascos ali, apodrecendo de pé. Ninguém afunda um barco desses. A gente deixa o porto ir afundando ele devagar, porque dói menos.' },
+      { text: 'Quarenta e dois anos de rede, rapaz. Sabe o que eu puxei ontem? Alga, uma bota e um pedaço de remo que nem era nosso.' },
+      { text: 'A bota era número quarenta. Do meu irmão era quarenta. Besteira de velho, eu sei.' },
+      { text: 'Olha aqueles cascos ali, apodrecendo. Ninguém afundou barco nenhum. A gente foi deixando o porto afundar devagarinho. Dói menos assim.' },
       { speaker: YOU, text: 'O senhor nunca pensou em ir embora?' },
-      { text: 'Pensei toda manhã. Mas pra onde vai um homem que só sabe ler o céu? Na cidade, ninguém paga por isso.' },
-      { text: 'Todo mundo aqui herdou um mar. Ninguém herdou o peixe. É essa a nossa herança: o nome do ofício e a dívida do que ele já foi.' },
-      { text: 'Seu pai foi o melhor que esse cais já viu. Quando ele voltava de uma saída, o porto inteiro parava pra olhar a vela. Não deixe ele te contar essa história de outro jeito.' },
-      { text: 'Homem que perdeu o ofício e não perdeu o orgulho é o mais difícil de abraçar. Vai lá. Eu seguro as pontas por aqui. Ainda sei fazer isso.' },
+      { text: 'Toda manhã. Aí olho o céu e penso: pra onde vai um homem que só sabe ler nuvem? Na cidade ninguém paga por isso.' },
+      { text: 'Seu pai era o melhor desse cais. Quando ele voltava, o porto parava pra ver a vela entrar. A criançada corria pra ajudar com o peixe.' },
+      { text: 'Cuidado quando ele contar essa história. Ele conta como se a culpa fosse dele. Não foi. Ou não foi só.' },
+      { text: 'Ah, uma coisa. Meu pai falava de uma ilha que acendia de noite, lá pro lado onde o mar escurece. Eu nunca vi. Também nunca fui procurar, né?' },
+      { text: 'Vai com Deus. Eu seguro as pontas por aqui. Ainda sei fazer isso.' },
     ],
     repeat: [
       { text: 'A maré anda baixa de tudo, rapaz. Menos de saudade.' },
@@ -61,14 +63,15 @@ const DIALOGUES = {
   iracema: {
     name: 'Dona Iracema',
     lines: [
-      { text: 'O céu estava limpo no dia em que meu marido saiu. Limpíssimo. O mar não avisa, meu filho. Ele só leva.' },
-      { text: 'Depois foi meu menino, tentando achar o pai. Hoje eu tenho dois barcos que ninguém tem coragem de vender e duas cadeiras vazias que ninguém tem coragem de tirar da mesa.' },
-      { text: 'Cada casa desse cais tem uma cadeira assim. A gente não conversa sobre isso. Passa o pão por cima do vazio e segue.' },
+      { text: 'Naquele dia o céu tava limpo. Limpíssimo. Ele riu e disse que ia e voltava pro almoço.' },
+      { text: 'Depois foi meu menino atrás do pai. Hoje eu tenho dois barcos que ninguém compra e duas cadeiras que ninguém tem coragem de tirar da mesa.' },
+      { text: 'Toda casa daqui tem uma cadeira dessas. A gente não fala. Passa o pão por cima do vazio e segue.' },
       { speaker: YOU, text: 'A senhora acende aquele lampião todo fim de tarde, não é?' },
-      { text: 'Todo fim de tarde. Eu sei que ninguém vai voltar por ele. Mas se eu apagar, aí de fato terminou. E eu ainda não aprendi a deixar terminar.' },
-      { text: 'Chamam isso de herança: os barcos, as dívidas, o silêncio. É tudo o que se passa de pai pra filho neste lugar.' },
+      { text: 'Todo. Sei que ninguém volta por causa dele. Mas se eu apagar... aí acabou, entende? E eu ainda não aprendi a deixar acabar.' },
+      { text: 'Meu marido falava de uma luz, lá longe, onde nem tem farol. Dizia que era a única que nunca apagava. Eu achava conversa de pescador.' },
+      { text: 'Agora fico me perguntando se ele não foi atrás dela.' },
       { speaker: YOU, text: 'Eu vou trazer de volta o que for possível.' },
-      { text: 'Não traga ninguém, meu filho. Nem nada. Traga só você. É a única coisa que esse porto ainda não perdeu.' },
+      { text: 'Não traga ninguém, filho. Nem nada. Traga você. É só o que esse porto ainda não perdeu.' },
     ],
     repeat: [
       { text: 'O lampião vai estar aceso. Pra você também.' },
@@ -79,17 +82,18 @@ const DIALOGUES = {
   pai: {
     name: 'Pai',
     lines: [
-      { text: 'Você veio. Achei que ia ficar na cama até o sol esquentar as tábuas.' },
-      { text: 'Olha esse barco. Fui eu que pintei o casco, faz dois invernos. Ele aguentou melhor do que eu.' },
+      { text: 'Veio. Achei que ia ficar na cama até o sol esquentar as tábuas.' },
+      { text: 'Olha esse barco. Eu mesmo pintei o casco, dois invernos atrás. Aguentou melhor que eu.' },
       { speaker: YOU, text: 'Pai... o que aconteceu de verdade?' },
-      { text: 'Eu falhei, filho. É uma palavra pequena demais. A gente alimentou uma cidade por trinta anos, e um dia o mar fechou a porta e nenhum de nós soube bater.' },
-      { text: 'Eu passei meses procurando de quem era a culpa. Do clima, do governo, dos grandes barcos. No fim, a culpa não fazia diferença: o cais continuava vazio, e eu continuava sendo o homem que não trouxe nada pra casa.' },
-      { text: 'Não te chamei aqui pra pedir perdão. Te chamei pra entregar o que sobrou: um barco, uma bússola e três lugares.' },
-      { text: 'Seu avô deixou três boias no mar, do tempo em que ele ainda dava. Contava que embaixo da luz de cada uma ficou guardado algo que a família não quis que o porto soubesse.' },
-      { text: 'Essa bússola não aponta o norte. Aponta pro que a gente deixou lá fora. Ela vai te levar até a mais próxima, depois até a seguinte.' },
-      { text: 'Eu não consigo mais ir. Não são os joelhos. É que o mar me conhece pelo que perdi. Em você ele ainda não encontrou nada.' },
-      { speaker: YOU, text: 'E se eu também não encontrar nada?' },
-      { text: 'Então terá encontrado o mar. Já é mais do que esse porto te deu. E volta. Sua mãe vai deixar a luz acesa.' },
+      { text: 'Eu falhei, filho. É pouca palavra, mas não achei outra.' },
+      { text: 'Trinta anos a gente alimentou essa cidade. Um dia o mar fechou a porta e nenhum de nós soube bater.' },
+      { text: 'Passei meses atrás de culpado. Clima, governo, barco grande. Não mudou nada. O cais continuou vazio, e eu continuei sendo o homem que não trouxe nada pra casa.' },
+      { text: 'Não te chamei pra pedir perdão. Te chamei pra entregar o que sobrou: um barco e uma bússola.' },
+      { text: 'Era do seu avô. Ela não aponta o norte. Aponta pro lugar onde ele pescava, a Primeira Boia, no mar aberto, pro sudeste. Ele jurava que a água ali era mais escura. Mais viva.' },
+      { text: 'Pesca lá. Pesca de verdade, até a bússola entender que você sabe o que faz. Meu pai era teimoso: só mostrava o resto pra quem provasse o básico.' },
+      { text: 'Eu não consigo mais ir. Não são os joelhos. É que o mar me conhece pelo que perdi. Em você ele ainda não achou nada.' },
+      { speaker: YOU, text: 'E se eu também não achar nada?' },
+      { text: 'Aí você achou o mar. Já é mais do que esse porto te deu. E volta, tá? Sua mãe vai deixar a luz acesa.' },
       { text: 'Vai. Antes que eu mude de ideia e te peça pra ficar.' },
     ],
     repeat: [
@@ -103,17 +107,17 @@ const DIALOGUES = {
 const FATHER_EXTRAS = {
   mae: {
     lines: [
-      { text: 'Sua mãe te abraçou antes de você vir, não foi? Eu vi pela janela. Ela abraça como quem despede, mesmo quando ninguém vai embora.' },
+      { text: 'Sua mãe te passou café, né? Ela passa duas vezes no coador quando tá nervosa. Fingi que não vi.' },
     ],
   },
   anselmo: {
     lines: [
-      { text: 'E o Anselmo deve ter te falado de mim com aquela voz de quem conta um velório. Ele exagera. Só um pouco.' },
+      { text: 'E o Anselmo deve ter falado de mim com voz de velório. Ele exagera. Só um pouco.' },
     ],
   },
   iracema: {
     lines: [
-      { text: 'A Iracema te deu aquele conselho de não trazer ninguém, não deu? Ela diz isso a todos. É o único jeito dela de pedir que a gente volte.' },
+      { text: 'A Iracema te pediu pra não trazer ninguém, não pediu? Ela diz isso pra todos. É o jeito dela de pedir que a gente volte.' },
     ],
   },
 };

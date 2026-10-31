@@ -1,5 +1,7 @@
 // src/systems/FishingSystem.js
 import * as THREE from 'three';
+import { TIERS, fishForSpot, getFish } from '../data/fish.js';
+import { TUTORIAL } from '../data/tutorial.js';
 
 /**
  * FishingSystem
@@ -19,8 +21,15 @@ import * as THREE from 'three';
  *   'result'   → pescou / a isca soltou (alguns segundos)
  *   'putaway'  → guarda a vara e sai do modo
  *
+ * TUTORIAL (primeira pescaria, uma vez): lançar normal; o quicktime desacelera e
+ * CONGELA no ponto perfeito (painel + espera a tecla); depois o recolher abre com
+ * uma pausa explicativa (e outra na primeira vez que a linha afrouxa).
+ * Durante as pausas o jogo congela (this._pause) e só o painel responde.
+ *
  * Uso:
- *   const fishing = new FishingSystem({ input, sailor, rig, ui, ocean, boat, keys });
+ *   const fishing = new FishingSystem({ input, sailor, rig, ui, ocean, boat, keys, tutorial, spotId });
+ *   // tutorial = { pending: () => bool, done: () => void } (opcional)
+ *   // spotId = ponto de pesca ('primeira-boia'): decide quais peixes aparecem (data/fish.js)
  *   // input = InputSystem (fishHeld, consumeFishPress/Release, consumeStow)
  *   // keys = { fish: () => 'G', stow: () => 'Q' } (nomes das teclas para as dicas)
  *   fishing.start();              // entra no modo (barco parado na zona)
@@ -43,7 +52,8 @@ const QTE = {
 };
 
 const REEL = {
-  zoneHalf: 0.17,
+  zoneHalf: 0.11, // meia-largura da zona de puxe (antes 0,17: agora menor)
+  tutorialZoneHalf: 0.15, // no tutorial a zona é um pouco maior
   holdAccel: 1.7, // aceleração do ponteiro segurando
   releaseAccel: 1.7, // ... e soltando
   damping: 3,
@@ -53,20 +63,18 @@ const REEL = {
   resultTime: 2.8,
 };
 
-const FISH = [
-  { name: 'Sardinha', kg: [0.1, 0.4], strength: 0.7, rarity: 1, color: 0xc4d3dc },
-  { name: 'Tainha', kg: [0.8, 2.2], strength: 0.9, rarity: 1, color: 0xaebdc4 },
-  { name: 'Robalo', kg: [1.5, 4.5], strength: 1.1, rarity: 0.8, color: 0x8fa6a0 },
-  { name: 'Dourado', kg: [3, 8], strength: 1.3, rarity: 0.45, color: 0xe0b73c },
-  { name: 'Atum', kg: [12, 35], strength: 1.6, rarity: 0.2, color: 0x4f6f8f },
-];
 
 const rand = (min, max) => min + Math.random() * (max - min);
 const clamp01 = (x) => Math.min(Math.max(x, 0), 1);
 
 export class FishingSystem {
-  constructor({ input, sailor, rig, ui, ocean = null, boat, keys = null }) {
+  constructor({ input, sailor, rig, ui, ocean = null, boat, keys = null, tutorial = null, spotId = 'primeira-boia' }) {
     this.keys = keys ?? { fish: () => 'G', stow: () => 'Q' };
+    this.tutorial = tutorial;
+    this.spotId = spotId;
+    this._pause = null; // { onResume }: jogo congelado esperando a tecla
+    this._timeScale = 1; // câmera lenta do tutorial (sailor e boia)
+    this._tutorialRun = false;
     this.input = input;
     this.sailor = sailor;
     this.rig = rig;
@@ -85,8 +93,9 @@ export class FishingSystem {
     this._castDistance = CAST_MIN;
     this._reel = null;
     this._qte = null;
-    this._fish = FISH[0];
-    this.stats = { caught: 0, lost: 0 };
+    this._fish = getFish('sardinha');
+    this.lastCatch = null; // { fish, kg } do último peixe/achado
+    this.stats = { caught: 0, lost: 0, junk: 0 };
   }
 
   get active() {
@@ -100,6 +109,8 @@ export class FishingSystem {
     this.sailor.pickUp();
     this.ui.setHint('');
     this.focusDistance = 6;
+    this._tutorialRun = this.tutorial?.pending() ?? false; // primeira pescaria do jogo?
+    this._timeScale = 1;
     this._setPhase('pickup');
   }
 
@@ -122,14 +133,40 @@ export class FishingSystem {
     return out;
   }
 
+  /** Sorteia peixe/achado do ponto (raridade: data/fish.js). Lançar mais forte favorece faixas altas. */
   _pickFish(power) {
-    const weights = FISH.map((f, i) => Math.max(0.05, f.rarity * (1 + (i - 1.5) * (power - 0.5) * 0.9)));
+    if (this._tutorialRun) return getFish('tainha'); // o primeiro peixe é sempre uma tainha
+    const pool = fishForSpot(this.spotId);
+    const weights = pool.map((f) => {
+      const tier = TIERS[f.tier];
+      return Math.max(0.05, tier.weight * (f.weight ?? 1) * (1 + (tier.index - 1.5) * (power - 0.5) * 0.9));
+    });
     let roll = Math.random() * weights.reduce((a, b) => a + b, 0);
-    for (let i = 0; i < FISH.length; i++) {
+    for (let i = 0; i < pool.length; i++) {
       roll -= weights[i];
-      if (roll <= 0) return FISH[i];
+      if (roll <= 0) return pool[i];
     }
-    return FISH[0];
+    return pool[0];
+  }
+
+  // ---------- pausa (tutorial) ----------
+
+  /** Congela o jogo e mostra o passo do tutorial; ao apertar a tecla, chama onResume. */
+  _pauseWith(step, onResume) {
+    const data = TUTORIAL[step](this.keys);
+    this._pause = { onResume };
+    this.ui.showTutorial({ ...data, key: this.keys.fish() });
+    this.input.consumeFishPress();
+    this.input.consumeFishRelease();
+  }
+
+  _updatePause() {
+    this.input.consumeFishRelease();
+    if (!this.input.consumeFishPress()) return;
+    const { onResume } = this._pause;
+    this._pause = null;
+    this.ui.hideTutorial();
+    onResume?.();
   }
 
   _toReady() {
@@ -143,14 +180,19 @@ export class FishingSystem {
     this.input.consumeFishPress();
     this.input.consumeFishRelease();
     this.focusDistance = 6;
-    this.ui.setHint(`Segure ${this.keys.fish()} para lançar  ·  ${this.keys.stow()} guarda a vara`);
+    this.ui.setHint(
+      this._tutorialRun
+        ? TUTORIAL.firstCast(this.keys)
+        : `Segure ${this.keys.fish()} para lançar  ·  ${this.keys.stow()} guarda a vara`
+    );
     this._setPhase('ready');
   }
 
   // ---------- loop ----------
 
   update(delta, elapsed) {
-    switch (this.phase) {
+    if (this._pause) this._updatePause();
+    else switch (this.phase) {
       case 'pickup': this._updatePickup(); break;
       case 'ready': this._updateReady(); break;
       case 'charging': this._updateCharging(delta); break;
@@ -163,9 +205,11 @@ export class FishingSystem {
       default: break; // 'off'
     }
 
-    this.sailor.update(delta, elapsed);
+    // durante a pausa o mundo congela; na câmera lenta ele anda devagar
+    const ts = this._pause ? 0 : this._timeScale;
+    this.sailor.update(delta * ts, elapsed);
     if (this.rig.state !== 'hidden' || this.phase !== 'off') {
-      this.rig.update(delta, elapsed, this.sailor.getRodTip(this._tmpTip));
+      this.rig.update(delta * ts, elapsed, this.sailor.getRodTip(this._tmpTip));
     }
   }
 
@@ -264,20 +308,48 @@ export class FishingSystem {
       pointer: 0,
       dir: 1,
       passes: 0,
+      tutorial: this._tutorialRun,
     };
     this._fish = this._pickFish(this._power);
     this.rig.bite();
     this.sailor.jerk();
     this.ui.showGauge('qte');
     this.ui.setGauge({ pointer: 0, zoneCenter: this._qte.zoneCenter, zoneWidth: QTE.zoneWidth });
-    this.ui.setHint(`Peixe fisgou! Aperte ${this.keys.fish()} com o ponteiro na zona verde!`);
+    this.ui.setHint(
+      this._tutorialRun ? 'Peixe fisgou! Olhe o ponteiro...' : `Peixe fisgou! Aperte ${this.keys.fish()} com o ponteiro na zona verde!`
+    );
     this.ui.flash('FISGOU!', 'bite');
     this.input.consumeFishPress();
     this._setPhase('qte');
   }
 
+  /** QTE do tutorial: o ponteiro sobe, desacelera e congela exatamente no centro (perfeito). */
+  _updateTutorialQte(delta) {
+    const q = this._qte;
+    this.input.consumeFishPress(); // só vale depois do congelamento
+    const near = clamp01((q.zoneCenter - q.pointer) / 0.28); // 1 = longe, 0 = chegou
+    this._timeScale = 0.3 + 0.7 * near;
+    this.ui.setSlowmo(near < 0.95);
+    q.pointer = Math.min(q.zoneCenter, q.pointer + QTE.speed * (0.12 + 0.88 * near * near) * delta);
+    this.ui.setGauge({ pointer: q.pointer });
+    if (q.pointer < q.zoneCenter - 0.0005) return;
+
+    q.pointer = q.zoneCenter;
+    this.ui.setGauge({ pointer: q.pointer });
+    this._pauseWith('qte', () => {
+      this.ui.setSlowmo(false);
+      this._timeScale = 1;
+      this.ui.flash('PERFEITO!', 'good');
+      this._startReel(1);
+    });
+  }
+
   _updateQte(delta) {
     const q = this._qte;
+    if (q.tutorial) {
+      this._updateTutorialQte(delta);
+      return;
+    }
     // o ponteiro vai e volta pela barra inteira (um pouco mais rápido a cada ida e volta)
     const speed = QTE.speed * (1 + q.passes * 0.12);
     q.pointer += q.dir * speed * delta;
@@ -310,6 +382,8 @@ export class FishingSystem {
   _startReel(quality) {
     this.rig.endBite();
     const fish = this._fish;
+    const tut = this._tutorialRun;
+    const zoneHalf = tut ? REEL.tutorialZoneHalf : REEL.zoneHalf;
     this._reel = {
       needle: 0.5,
       velocity: 0,
@@ -318,23 +392,55 @@ export class FishingSystem {
       force: 0,
       forceTarget: 0,
       forceTimer: 0.6,
-      amplitude: 0.55 + 0.45 * fish.strength,
+      amplitude: (0.55 + 0.45 * fish.strength) * (tut ? 0.7 : 1),
       startDistance: this._castDistance,
       startLateral: this._cast?.lateral ?? 0,
+      zoneHalf,
+      zone: { center: 0.5, target: 0.5, vel: 0, timer: 0.9 }, // a zona de puxe anda sozinha
+      zoneSpeed: tut ? 0.6 : 1,
+      waitRelease: false, // depois de uma pausa, só vale quando soltar a tecla
+      tutorial: tut,
+      dangerShown: false,
     };
     this.ui.showGauge('reel');
-    this.ui.setGauge({ zoneCenter: 0.5, zoneWidth: REEL.zoneHalf * 2, pointer: 0.5, fishX: 0.5, danger: 0 });
+    this.ui.setGauge({ zoneCenter: 0.5, zoneWidth: zoneHalf * 2, pointer: 0.5, fishX: 0.5, danger: 0 });
     this.ui.setProgress(this._reel.progress);
-    this.ui.setHint(`Segure ${this.keys.fish()} para puxar  ·  solte para dar linha  ·  mantenha o ponteiro no meio`);
+    this.ui.setHint(`Segure ${this.keys.fish()} para puxar  ·  solte para dar linha  ·  siga a zona verde`);
     this.sailor.setMode('reel');
     this._setPhase('reel');
+
+    if (tut) {
+      this._pauseWith('reelIntro', () => {
+        this._reel.waitRelease = true;
+        this.tutorial?.done(); // o jogador já viu o tutorial: não repete
+        this._tutorialRun = false;
+      });
+    }
   }
 
   _updateReel(delta, elapsed) {
     const r = this._reel;
-    const held = this.input.fishHeld;
+    let held = this.input.fishHeld;
     this.input.consumeFishPress();
     this.input.consumeFishRelease();
+    if (r.waitRelease) {
+      if (held) held = false;
+      else r.waitRelease = false;
+    }
+
+    // a zona de puxe vai para a esquerda e para a direita, de forma aleatória e suave
+    const z = r.zone;
+    z.timer -= delta;
+    if (z.timer <= 0) {
+      const dir = Math.random() < 0.5 ? -1 : 1;
+      const span = rand(0.14, 0.3);
+      let target = z.center + dir * span;
+      if (target < 0.25 || target > 0.75) target = z.center - dir * span;
+      z.target = Math.min(Math.max(target, 0.22), 0.78);
+      z.timer = rand(1.0, 2.2) / r.zoneSpeed;
+    }
+    z.vel += ((z.target - z.center) * 7 - z.vel * 3.4) * delta;
+    z.center = Math.min(Math.max(z.center + z.vel * delta, 0.2), 0.8);
 
     // o peixe puxa para um lado e para o outro, em arrancadas
     r.forceTimer -= delta;
@@ -356,7 +462,7 @@ export class FishingSystem {
       atLimit = true;
     }
 
-    const inZone = Math.abs(r.needle - 0.5) <= REEL.zoneHalf;
+    const inZone = Math.abs(r.needle - z.center) <= r.zoneHalf;
     if (inZone) {
       r.progress += REEL.progressRate * delta;
       r.slack = Math.max(0, r.slack - 2 * delta);
@@ -376,16 +482,27 @@ export class FishingSystem {
     this.rig.setSlack(inZone ? 0.1 : danger);
     if (Math.random() < delta * 3) this.rig.ripple(this._tmpTarget.x, this._tmpTarget.z, 0.7);
 
-    this.sailor.setTension(clamp01(Math.abs(r.needle - 0.5) * 2 * 0.5 + 0.4 * Math.abs(r.force) / r.amplitude));
+    this.sailor.setTension(clamp01(Math.abs(r.needle - z.center) * 2 * 0.5 + 0.4 * Math.abs(r.force) / r.amplitude));
     this.sailor.setCrank(held);
 
-    this.ui.setGauge({ pointer: r.needle, fishX: 0.5 + (r.force / r.amplitude) * 0.1, danger });
+    this.ui.setGauge({
+      zoneCenter: z.center,
+      zoneWidth: r.zoneHalf * 2,
+      pointer: r.needle,
+      fishX: z.center + (r.force / r.amplitude) * 0.08,
+      danger,
+    });
     this.ui.setProgress(r.progress);
 
     if (r.progress >= 1) {
       this._finish(true);
     } else if (r.slack >= REEL.slackLimit) {
       this._finish(false, 'A linha ficou frouxa: a isca soltou e o peixe levou.');
+    } else if (r.tutorial && !r.dangerShown && r.slack > 0.35) {
+      r.dangerShown = true; // segunda pausa do tutorial: o que acontece fora da zona
+      this._pauseWith('reelDanger', () => {
+        r.waitRelease = true;
+      });
     }
   }
 
@@ -401,15 +518,18 @@ export class FishingSystem {
     if (caught) {
       const fish = this._fish;
       const kg = rand(fish.kg[0], fish.kg[1]);
-      this.stats.caught += 1;
+      if (fish.junk) this.stats.junk += 1;
+      else this.stats.caught += 1;
+      this.lastCatch = { fish, kg };
       this.sailor.setMode('lift', 9);
       const to = this.sailor.getRodTip(this._tmpTip).clone();
       to.y -= 0.8;
       this.rig.playCatch(to, fish.color);
       this.ui.showResult({
         ok: true,
-        title: `${fish.name} fisgado!`,
+        title: fish.junk ? `Você puxou: ${fish.name}` : `${fish.name} fisgado!`,
         subtitle: `${kg.toFixed(1).replace('.', ',')} kg`,
+        fish,
       });
     } else {
       this.stats.lost += 1;

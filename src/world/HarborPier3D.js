@@ -334,19 +334,27 @@ export class HarborPier3D {
 
   _buildVillage() {
     // as mesmas casas e cores do porto 2D, de frente para o mar (porta virada para +x)
+    // fileira da frente (voltada para o mar) e fileira de trás, mais para dentro da ilha
     const base = [
-      { z: -33, d: 6, l: 7.5, h: 5, wall: '#a8734f', roof: '#4a2f2a' },
-      { z: -21, d: 6, l: 7, h: 6.2, wall: '#7d8fa3', roof: '#35404f' },
-      { z: -10, d: 5, l: 6, h: 4.4, wall: '#c29a5b', roof: '#5a3a2e' },
-      { z: 9, d: 5.5, l: 6, h: 4, wall: '#9a8f7a', roof: '#4a2f2a' },
+      { row: 0, z: -31, d: 6, l: 7.5, h: 5, wall: '#a8734f', roof: '#4a2f2a' },
+      { row: 0, z: -20, d: 6, l: 7, h: 6.2, wall: '#7d8fa3', roof: '#35404f' },
+      { row: 0, z: -10, d: 5, l: 6, h: 4.4, wall: '#c29a5b', roof: '#5a3a2e' },
+      { row: 0, z: 6, d: 5.5, l: 6, h: 4, wall: '#9a8f7a', roof: '#4a2f2a' },
+      { row: 1, z: -26, d: 5, l: 6.5, h: 4.6, wall: '#6f7f6a', roof: '#3a2f2a' },
+      { row: 1, z: -4, d: 5.5, l: 7, h: 5.2, wall: '#b08a6a', roof: '#4a3a30' },
     ];
-    // cada casa fica na borda leste do platô, com a fachada voltada para o mar
+    // a fachada fica a 2,5 da borda leste do platô, medida nas DUAS pontas da casa
+    // (a elipse curva para dentro: assim nenhum canto sai da terra)
     const { x: cx, z: cz, rx, rz } = ISLAND_L;
+    const edgeX = (zz) => cx + PLATEAU_K * rx * Math.sqrt(Math.max(0, 1 - ((zz - cz) / (PLATEAU_K * rz)) ** 2));
     const houses = base.map((h) => {
       const d = h.d * HOUSE_K;
-      const edge = cx + PLATEAU_K * rx * Math.sqrt(1 - ((h.z - cz) / (PLATEAU_K * rz)) ** 2);
-      return { ...h, d, l: h.l * HOUSE_K, h: h.h * HOUSE_K, x: edge - 1.2 - d / 2 };
+      const l = h.l * HOUSE_K;
+      const edge = Math.min(edgeX(h.z - l / 2), edgeX(h.z + l / 2));
+      const front = edge - 2.5 - d / 2;
+      return { ...h, d, l, h: h.h * HOUSE_K, x: h.row === 0 ? front : front - 13 };
     });
+    HarborPier3D._houses = houses; // (só para teste/inspeção)
 
     const beam = this._std('#3b2a20');
     const windowMat = new THREE.MeshBasicMaterial({ color: '#ffd47a' });

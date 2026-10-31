@@ -53,7 +53,7 @@ const NPC_DEFS = [
     name: 'Mãe',
     x: -19.2,
     facing: 1,
-    look: { coat: '#5b6577', skirt: '#5b6577', shawl: '#8a6f5a', hair: '#4a3a38', bun: true, scale: 0.95, stoop: 0.04 },
+    look: { coat: '#5b6577', skirt: '#5b6577', shawl: '#8a6f5a', hair: '#4a3a38', hairStyle: 'back', bun: true, scale: 0.95, stoop: 0.04 },
   },
   {
     id: 'anselmo',
@@ -322,11 +322,28 @@ export class Harbor {
 
   _buildBuildings() {
     const layer = this._addLayer(0);
-    this._addHouse(layer, -25, 6, 5, '#a8734f', '#4a2f2a');
-    this._addHouse(layer, -17, 7.5, 6.2, '#7d8fa3', '#35404f');
-    this._addHouse(layer, -8, 6, 4.4, '#c29a5b', '#5a3a2e');
-    this._addHouse(layer, 1, 8, 5.4, '#8b5e4b', '#2f3a46');
-    this._addHouse(layer, 10.5, 5.5, 4, '#9a8f7a', '#4a2f2a');
+    // as casas ficam distribuídas por igual entre as pontas (nada passa da borda do cais)
+    // [largura, altura, parede, telhado]
+    const specs = [
+      [6, 5, '#a8734f', '#4a2f2a'],
+      [7.5, 6.2, '#7d8fa3', '#35404f'],
+      [6, 4.4, '#c29a5b', '#5a3a2e'],
+      [8, 5.4, '#8b5e4b', '#2f3a46'],
+      [5.5, 4, '#9a8f7a', '#4a2f2a'],
+    ];
+    const from = -26.5;
+    const to = 17.5;
+    const gap = (to - from - specs.reduce((sum, spec) => sum + spec[0], 0)) / (specs.length - 1);
+
+    this._lampXs = []; // os postes de luz ficam nos vãos entre as casas (não dentro de janelas)
+    let left = from;
+    specs.forEach(([w, h, wall, roof], i) => {
+      this._addHouse(layer, left + w / 2, w, h, wall, roof);
+      left += w;
+      if (i < specs.length - 1) this._lampXs.push(left + gap / 2);
+      left += gap;
+    });
+    this._lampXs.push(20); // o último, junto ao pai
   }
 
   _buildProps() {
@@ -362,7 +379,7 @@ export class Harbor {
     barrel(17.5);
 
     // postes de luz
-    for (const x of [-19.5, -4.5, 8, 20]) {
+    for (const x of this._lampXs) {
       const g = new THREE.Group();
       g.position.set(x, DECK_Y, 0.6);
       g.add(rect(0.2, 4, '#2b2622', 0, 2, 0));
@@ -490,7 +507,7 @@ export class Harbor {
       }
       cap.push([-0.3, 1.5], [-0.1, 1.57], [0.12, 1.6], [0.3, 1.52]);
       upper.add(poly(cap, hair, 0.022));
-      upper.add(circle(0.14, hair, -0.32, 1.28, 0.011));
+      if (!bun) upper.add(circle(0.14, hair, -0.32, 1.28, 0.011)); // coque baixo (quem tem coque alto não)
     } else if (hair) {
       upper.add(circle(0.36, hair, -0.05, 1.48, 0.012));
     }

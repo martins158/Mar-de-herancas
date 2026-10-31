@@ -108,6 +108,12 @@ rig.addTo(sceneManager.scene);
 const fishing = new FishingSystem({
   input, sailor, rig, ui: fishUI, ocean, boat: player.mesh,
   keys: { fish: () => keyName('fish'), stow: () => keyName('stow') },
+  spotId: 'primeira-boia',
+  // a primeira pescaria do jogo dispara o tutorial (uma vez por sessão)
+  tutorial: {
+    pending: () => !gameState.hasTutorial('fishing'),
+    done: () => gameState.completeTutorial('fishing'),
+  },
 });
 
 // câmera da pescaria: atrás do barco, olhando para o lado do lançamento (boreste)
@@ -282,8 +288,8 @@ engine.start((delta, elapsed) => {
   petrol += ((inSpot ? 1 : 0) - petrol) * dampFactor(1.6, delta);
   ocean.setPetrol(petrol);
 
-  // bússola: aponta para a zona de pesca (some enquanto pesca)
-  const showCompass = !fishing.active;
+  // bússola: aponta para a zona de pesca (some enquanto pesca e dentro do aro)
+  const showCompass = !fishing.active && !inSpot; // dentro do aro a seta some (volta ao sair)
   compass.update(delta, boatPos, showCompass ? spot.position : null);
 
   if (fishing.active) {

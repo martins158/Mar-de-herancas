@@ -17,6 +17,7 @@
  *   gameState.addItem('mapa-antigo');
  *   gameState.visitIsland('poi-0');
  *   gameState.markTalked('mae');       // conversas do porto
+ *   gameState.completeTutorial('fishing');
  *
  *   const unsubscribe = gameState.onChange((state) => hud.render(state));
  */
@@ -27,6 +28,7 @@ export class GameState {
     this.visitedIslands = new Set();
     this.totalIslands = 0; // 0 = sem objetivo definido
     this.talkedTo = new Set(); // ids das pessoas do porto com quem o jogador já conversou
+    this.tutorials = new Set(); // tutoriais já vistos ('fishing' = primeira pescaria)
     this._listeners = [];
   }
 
@@ -78,6 +80,17 @@ export class GameState {
 
   hasTalked(npcId) {
     return this.talkedTo.has(npcId);
+  }
+
+  /** Marca um tutorial como concluído (não dispara de novo nesta sessão). */
+  completeTutorial(id) {
+    if (this.tutorials.has(id)) return;
+    this.tutorials.add(id);
+    this._notify();
+  }
+
+  hasTutorial(id) {
+    return this.tutorials.has(id);
   }
 
   /** Chama callback(state) sempre que algo mudar. Retorna função para cancelar a inscrição. */

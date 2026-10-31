@@ -4,7 +4,8 @@
  * HUD
  * Overlay simples em DOM (sem framework de UI). Tem:
  *  - cartão de objetivo/dica no canto superior esquerdo (setObjective);
- *  - prompt na parte de baixo da tela ("Pressione G para pescar").
+ *  - prompt (dica) no TOPO da tela ("Pressione G para pescar"): ordem de leitura =
+ *    dicas em cima, personagem no meio, diálogos embaixo.
  * O painel de debug (fase, posição, bússola, itens, pontos) foi removido.
  *
  * Uso:
@@ -58,7 +59,7 @@ export class HUD {
     this.prompt = document.createElement('div');
     this.prompt.style.cssText = `
       position: fixed;
-      bottom: 12%;
+      top: 7%;
       left: 50%;
       transform: translateX(-50%);
       padding: 10px 22px;
@@ -89,7 +90,7 @@ export class HUD {
     this._render();
   }
 
-  /** Texto fixo na parte de baixo da tela. null/'' esconde. */
+  /** Dica fixa no topo da tela. null/'' esconde. */
   setPrompt(text) {
     const next = text || null;
     if (next === this._promptText) return;

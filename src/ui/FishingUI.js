@@ -1,4 +1,6 @@
 // src/ui/FishingUI.js
+import { fishArt } from './FishIcon.js';
+import { TIERS } from '../data/fish.js';
 
 /**
  * FishingUI
@@ -9,7 +11,9 @@
  *     no centro da zona, ícone de peixe flutuando acima e o ponteiro vermelho
  *     com a base em "T" (a mesma barra serve para os dois momentos);
  *   - barrinha de progresso do peixe sendo trazido;
- *   - dica de controles, aviso rápido (PERFEITO!, ERROU!...) e o cartão do resultado.
+ *   - dica de controles, aviso rápido (PERFEITO!, ERROU!...) e o cartão do resultado
+ *     (pergaminho com o desenho do peixe em estilo de bestiário);
+ *   - painel do TUTORIAL (jogo pausado, espera a tecla) e efeito de câmera lenta.
  *
  * Uso:
  *   const ui = new FishingUI();
@@ -18,7 +22,8 @@
  *   ui.setGauge({ pointer, zoneCenter, zoneWidth, fishX, danger });  // tudo 0..1
  *   ui.setProgress(0..1);
  *   ui.setHint('texto'); ui.flash('PERFEITO!', 'good' | 'ok' | 'miss' | 'bite');
- *   ui.showResult({ ok, title, subtitle }); ui.hideResult();
+ *   ui.showResult({ ok, title, subtitle, fish }); ui.hideResult();
+ *   ui.showTutorial({ title, text, key, focus }); ui.hideTutorial(); ui.setSlowmo(true|false);
  *   ui.hideGauge(); ui.hideAll(); ui.dispose();
  */
 
@@ -34,7 +39,7 @@ const CSS = `
 .mdh-fish [hidden] { display: none !important; }
 
 /* ---- força do arremesso ---- */
-.mdh-fish-power { position: absolute; left: 50%; bottom: 24%; width: min(48vw, 480px); transform: translateX(-50%); text-align: center; }
+.mdh-fish-power { position: absolute; left: 50%; top: 15%; width: min(48vw, 480px); transform: translateX(-50%); text-align: center; }
 .mdh-fish-power .label { font-size: 15px; letter-spacing: 0.3em; text-shadow: 0 2px 6px #000; margin-bottom: 8px; }
 .mdh-fish-power .track { position: relative; height: 22px; border-radius: 11px; overflow: hidden;
   background: linear-gradient(180deg, #4b4e53 0%, #25272a 45%, #0d0e10 100%);
@@ -75,7 +80,7 @@ const CSS = `
 .mdh-fish-progress .mini svg { display: block; width: 100%; }
 
 /* ---- textos ---- */
-.mdh-fish-hint { position: absolute; left: 50%; bottom: 12%; transform: translateX(-50%); width: 92vw; text-align: center; font-size: 20px; text-shadow: 0 2px 8px #000, 0 0 3px #000; }
+.mdh-fish-hint { position: absolute; left: 50%; top: 7%; transform: translateX(-50%); width: 92vw; text-align: center; font-size: 20px; text-shadow: 0 2px 8px #000, 0 0 3px #000; }
 .mdh-fish-flash { position: absolute; left: 50%; top: 32%; transform: translateX(-50%); font-size: 44px; font-weight: bold; letter-spacing: 0.08em; text-shadow: 0 3px 10px #000; opacity: 0; white-space: nowrap; }
 .mdh-fish-flash.show { animation: mdh-fish-flash 1.1s ease-out forwards; }
 .mdh-fish-flash.good { color: #7dff6a; } .mdh-fish-flash.ok { color: #ffd34d; }
@@ -85,7 +90,7 @@ const CSS = `
 .mdh-fish-result { position: absolute; left: 50%; top: 34%; transform: translateX(-50%); min-width: 320px; max-width: 86vw; padding: 22px 34px 24px; text-align: center;
   border-radius: 16px; background: rgba(12,16,20,0.82); border: 1px solid rgba(255,255,255,0.18); box-shadow: 0 10px 34px rgba(0,0,0,0.6);
   animation: mdh-fish-pop 0.35s ease-out; }
-.mdh-fish-result .icon { width: 96px; margin: 0 auto 10px; }
+.mdh-fish-result .icon { width: 150px; margin: 0 auto 6px; }
 .mdh-fish-result .icon svg { display: block; width: 100%; }
 .mdh-fish-result .title { font-size: 30px; }
 .mdh-fish-result .sub { font-size: 19px; opacity: 0.85; margin-top: 6px; }
@@ -93,6 +98,29 @@ const CSS = `
 .mdh-fish-result.lost { border-color: rgba(255,90,74,0.55); }
 .mdh-fish-result.lost .icon { opacity: 0.35; filter: grayscale(1); }
 @keyframes mdh-fish-pop { from { opacity: 0; transform: translateX(-50%) scale(0.85); } to { opacity: 1; transform: translateX(-50%) scale(1); } }
+
+/* ---- cartão de pergaminho (peixe pescado) ---- */
+.mdh-fish-result.ok { background: linear-gradient(#efe3c6, #e2d2ac); color: #2b1d12; border: 3px double #6b4a2b; border-radius: 6px;
+  box-shadow: 0 10px 34px rgba(0,0,0,0.6), inset 0 0 40px rgba(120,80,30,0.25); }
+.mdh-fish-result .tier { font-size: 12px; letter-spacing: 0.3em; text-transform: uppercase; margin-bottom: 4px; min-height: 1em; }
+.mdh-fish-result .tier.comum { color: #5b5b50; } .mdh-fish-result .tier.incomum { color: #2f6b3a; }
+.mdh-fish-result .tier.raro { color: #2a4f8f; } .mdh-fish-result .tier.achado { color: #6b4a2b; }
+.mdh-fish-result .tier.lendario { color: #a8741a; text-shadow: 0 0 8px #f0c860; }
+.mdh-fish-result .icon svg { width: 100%; height: auto; }
+
+/* ---- tutorial (jogo pausado) e câmera lenta ---- */
+.mdh-fish-tut { position: absolute; left: 50%; top: 16%; transform: translateX(-50%); width: min(560px, 90vw); padding: 18px 26px 16px; text-align: center;
+  border-radius: 6px; background: linear-gradient(#efe3c6, #e2d2ac); color: #2b1d12; border: 3px double #6b4a2b;
+  box-shadow: 0 10px 34px rgba(0,0,0,0.6), inset 0 0 40px rgba(120,80,30,0.25); animation: mdh-fish-pop 0.3s ease-out; }
+.mdh-fish-tut .title { font-size: 22px; font-weight: bold; margin-bottom: 8px; }
+.mdh-fish-tut .text { font-size: 17px; line-height: 1.45; }
+.mdh-fish-tut .cont { margin-top: 12px; font-size: 15px; letter-spacing: 0.12em; animation: mdh-fish-blink 1.1s ease-in-out infinite alternate; }
+@keyframes mdh-fish-blink { from { opacity: 0.45; } to { opacity: 1; } }
+.mdh-fish-gauge[data-focus="zone"] .zone { animation: mdh-fish-zone 0.8s ease-in-out infinite alternate; }
+@keyframes mdh-fish-zone { from { box-shadow: 0 0 0 0 rgba(255,255,255,0); } to { box-shadow: 0 0 18px 4px rgba(255,255,255,0.85); } }
+.mdh-fish::before { content: ''; position: absolute; inset: 0; opacity: 0; transition: opacity 0.35s; pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(0,0,0,0) 40%, rgba(8,18,34,0.6) 100%); }
+.mdh-fish.slow::before { opacity: 1; }
 `;
 
 export class FishingUI {
@@ -122,8 +150,14 @@ export class FishingUI {
       </div>
       <div class="mdh-fish-hint"></div>
       <div class="mdh-fish-flash"></div>
+      <div class="mdh-fish-tut" hidden>
+        <div class="title"></div>
+        <div class="text"></div>
+        <div class="cont"></div>
+      </div>
       <div class="mdh-fish-result" hidden>
         <div class="icon">${FISH_SVG}</div>
+        <div class="tier"></div>
         <div class="title"></div>
         <div class="sub"></div>
       </div>`;
@@ -144,7 +178,13 @@ export class FishingUI {
       hint: $('.mdh-fish-hint'),
       flash: $('.mdh-fish-flash'),
       result: $('.mdh-fish-result'),
+      resultIcon: $('.mdh-fish-result .icon'),
+      resultTier: $('.mdh-fish-result .tier'),
       resultTitle: $('.mdh-fish-result .title'),
+      tut: $('.mdh-fish-tut'),
+      tutTitle: $('.mdh-fish-tut .title'),
+      tutText: $('.mdh-fish-tut .text'),
+      tutCont: $('.mdh-fish-tut .cont'),
       resultSub: $('.mdh-fish-result .sub'),
     };
     this._hint = '';
@@ -219,8 +259,12 @@ export class FishingUI {
     el.classList.add('show');
   }
 
-  showResult({ ok, title, subtitle = '' }) {
+  showResult({ ok, title, subtitle = '', fish = null }) {
     this.el.result.className = `mdh-fish-result ${ok ? 'ok' : 'lost'}`;
+    this.el.resultIcon.innerHTML = fish?.art ? fishArt(fish.art, { width: 150 }) : FISH_SVG;
+    const tier = fish ? TIERS[fish.tier] : null;
+    this.el.resultTier.textContent = tier?.label ?? '';
+    this.el.resultTier.className = `tier ${fish?.tier ?? ''}`;
     this.el.resultTitle.textContent = title;
     this.el.resultSub.textContent = subtitle;
     this.el.result.hidden = false;
@@ -230,10 +274,33 @@ export class FishingUI {
     this.el.result.hidden = true;
   }
 
+  // ---------- tutorial ----------
+
+  /** Painel do tutorial (o jogo está pausado): `focus` destaca a zona da barra. */
+  showTutorial({ title, text, key, focus = '' }) {
+    this.el.tutTitle.textContent = title;
+    this.el.tutText.textContent = text;
+    this.el.tutCont.textContent = `Pressione ${key} para continuar`;
+    this.el.tut.hidden = false;
+    if (focus) this.el.gauge.dataset.focus = focus;
+  }
+
+  hideTutorial() {
+    this.el.tut.hidden = true;
+    delete this.el.gauge.dataset.focus;
+  }
+
+  /** Câmera lenta: escurece as bordas da tela. */
+  setSlowmo(on) {
+    this.root.classList.toggle('slow', Boolean(on));
+  }
+
   hideAll() {
     this.hidePower();
     this.hideGauge();
     this.hideResult();
+    this.hideTutorial();
+    this.setSlowmo(false);
     this.setHint('');
   }
 
