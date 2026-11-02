@@ -56,6 +56,25 @@ export class HUD {
     this.card.append(this.cardTitle, this.cardText);
     document.body.appendChild(this.card);
 
+    this.tool = document.createElement('div'); // dica fixa no canto superior direito (ex.: J · Diário)
+    this.tool.style.cssText = `
+      position: fixed;
+      top: 14px;
+      right: 14px;
+      padding: 6px 12px;
+      background: rgba(6, 16, 26, 0.55);
+      border-right: 3px solid #ffd9a0;
+      border-radius: 6px;
+      color: #fff;
+      font-family: Georgia, serif;
+      font-size: 15px;
+      pointer-events: none;
+      display: none;
+      z-index: 10;
+    `;
+    document.body.appendChild(this.tool);
+    this._toolText = null;
+
     this.prompt = document.createElement('div');
     this.prompt.style.cssText = `
       position: fixed;
@@ -90,6 +109,12 @@ export class HUD {
     this._render();
   }
 
+  /** Dica no canto superior direito (ex.: 'J · Diário'). null esconde. */
+  setToolHint(text) {
+    this._toolText = text || null;
+    this._render();
+  }
+
   /** Dica fixa no topo da tela. null/'' esconde. */
   setPrompt(text) {
     const next = text || null;
@@ -106,6 +131,8 @@ export class HUD {
   updatePosition() {}
 
   _render() {
+    this.tool.style.display = this._visible && this._toolText ? 'block' : 'none';
+    this.tool.textContent = this._toolText ?? '';
     const show = this._visible && this._objective;
     this.card.style.display = show ? 'block' : 'none';
     if (show) {
@@ -116,6 +143,7 @@ export class HUD {
 
   dispose() {
     this.card.remove();
+    this.tool.remove();
     this.prompt.remove();
   }
 }

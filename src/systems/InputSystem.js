@@ -20,6 +20,7 @@ import { DEFAULT_KEYMAP } from '../state/Settings.js';
  *   input.consumeFishPress();   // true UMA vez por aperto de pescar (ignora auto-repeat)
  *   input.consumeFishRelease(); // true UMA vez ao soltar a(s) tecla(s) de pescar
  *   input.consumeStow();        // true UMA vez por aperto de guardar a vara
+ *   input.consumeJournal();     // true UMA vez por aperto da tecla do diário
  *   input.reset();              // solta todas as teclas (use ao trocar de tela)
  *
  *   input.dispose();
@@ -27,7 +28,8 @@ import { DEFAULT_KEYMAP } from '../state/Settings.js';
 export class InputSystem {
   constructor({ settings = null } = {}) {
     this.settings = settings;
-    this.keys = { forward: false, backward: false, left: false, right: false, interact: false, fish: false, stow: false };
+    this.keys = { forward: false, backward: false, left: false, right: false, interact: false, fish: false, stow: false, journal: false };
+    this._journalQueued = false;
     this._interactQueued = false;
     this._fishDown = new Set(); // teclas de pescar seguradas (principal e alternativa)
     this._fishPressed = false;
@@ -72,6 +74,7 @@ export class InputSystem {
       return;
     }
     if (action === 'stow' && isPressed && !isRepeat) this._stowQueued = true;
+    if (action === 'journal' && isPressed && !isRepeat) this._journalQueued = true;
 
     if (action === 'interact' && isPressed && !isRepeat) this._interactQueued = true;
     this.keys[action] = isPressed;
@@ -131,6 +134,12 @@ export class InputSystem {
     return value;
   }
 
+  consumeJournal() {
+    const value = this._journalQueued;
+    this._journalQueued = false;
+    return value;
+  }
+
   consumeStow() {
     const value = this._stowQueued;
     this._stowQueued = false;
@@ -145,6 +154,7 @@ export class InputSystem {
     this._fishPressed = false;
     this._fishReleased = false;
     this._stowQueued = false;
+    this._journalQueued = false;
   }
 
   dispose() {

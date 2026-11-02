@@ -13,6 +13,10 @@ import * as THREE from 'three';
  * O raio do aro é o mesmo do gatilho (padrão 15 = os 12 antigos + 25%) e fica
  * em `point.radius`: use esse valor no main.js em vez de um número fixo.
  *
+ * Pontos podem ser passados como lista: { id, name, position, radius?, beacon?, active? }.
+ * `active: false` = escondido e ignorado até pois.setActive(id, true).
+ * `beacon: true` = uma luz alta e fraca, visível de longe (a Ilha da Lanterna).
+ *
  * Uso:
  *   const pois = new PointsOfInterest();
  *   pois.addTo(scene);
@@ -29,11 +33,28 @@ const RING_WIDTH = 0.5; // largura da fita
 const RING_LIFT = 0.3; // sobe um pouco acima da água para não afundar na crista
 
 export class PointsOfInterest {
-  constructor({ positions, triggerRadius = 15 } = {}) {
+  constructor({ positions, points, triggerRadius = 15 } = {}) {
     this.triggerRadius = triggerRadius;
-    this.points = (positions ?? PointsOfInterest.defaultLayout()).map((position, index) =>
-      this._createRing(position, `poi-${index}`, `Ponto ${index + 1}`)
-    );
+    const list =
+      points ??
+      (positions ?? PointsOfInterest.defaultLayout()).map((position, index) => ({
+        id: `poi-${index}`,
+        name: `Ponto ${index + 1}`,
+        position,
+      }));
+    this.points = list.map((p) => this._createRing(p.position, p.id, p.name, p));
+  }
+
+  getById(id) {
+    return this.points.find((p) => p.id === id) ?? null;
+  }
+
+  /** Mostra/esconde um ponto (inativo não aparece nem é alcançado). */
+  setActive(id, active) {
+    const point = this.getById(id);
+    if (!point) return;
+    point.active = active;
+    point.mesh.visible = active;
   }
 
   /** Mesmas posições das antigas ilhas. Trocar por geração procedural depois. */
@@ -45,9 +66,10 @@ export class PointsOfInterest {
     ];
   }
 
-  _createRing(position, id, name) {
-    const radius = this.triggerRadius;
+  _createRing(position, id, name, options = {}) {
+    const radius = options.radius ?? this.triggerRadius;
     const group = new THREE.Group();
+    group.visible = options.active ?? true;
 
     // fita em volta do círculo: 2 vértices por segmento (borda de dentro e de fora)
     const positions = new Float32Array((RING_SEGMENTS + 1) * 2 * 3);
@@ -72,10 +94,29 @@ export class PointsOfInterest {
     ring.renderOrder = 3;
     group.add(ring);
 
+    // luz distante opcional (a ilha que "acende")
+    let beam = null;
+    if (options.beacon) {
+      const beamMaterial = new THREE.MeshBasicMaterial({
+        color: 0xffe2a0,
+        transparent: true,
+        opacity: 0.2,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+      });
+      beam = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 6, 140, 16, 1, true), beamMaterial);
+      beam.position.set(position.x, 70, position.z);
+      beam.frustumCulled = false;
+      group.add(beam);
+    }
+
     const point = {
       id,
       name,
       radius,
+      active: options.active ?? true,
+      _beam: beam,
       position: new THREE.Vector3(position.x, 0, position.z),
       mesh: group,
       _ring: ring,
@@ -111,13 +152,18 @@ export class PointsOfInterest {
   /** Faz o aro subir e descer com as ondas. */
   update(elapsed, ocean) {
     if (!ocean) return;
-    for (const point of this.points) this._writeRing(point, ocean);
+    for (const point of this.points) {
+      if (!point.active) continue;
+      this._writeRing(point, ocean);
+      if (point._beam) point._beam.material.opacity = 0.17 + 0.06 * Math.sin(elapsed * 1.3); // a luz respira
+    }
   }
 
   /** Pontos cujo aro contém a posição e que ainda não foram visitados. */
   getReached(position, isVisited) {
     return this.points.filter(
       (point) =>
+        point.active &&
         !isVisited(point.id) &&
         Math.hypot(position.x - point.position.x, position.z - point.position.z) < point.radius
     );
@@ -128,7 +174,7 @@ export class PointsOfInterest {
     let nearest = null;
     let best = Infinity;
     for (const point of this.points) {
-      if (isVisited(point.id)) continue;
+      if (!point.active || isVisited(point.id)) continue;
       const distance = Math.hypot(position.x - point.position.x, position.z - point.position.z);
       if (distance < best) {
         best = distance;
@@ -152,6 +198,8 @@ export class PointsOfInterest {
     for (const point of this.points) {
       point._ring.geometry.dispose();
       point._materials.ringMaterial.dispose();
+      point._beam?.geometry.dispose();
+      point._beam?.material.dispose();
       point.mesh.removeFromParent();
     }
   }

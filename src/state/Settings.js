@@ -25,6 +25,7 @@ export const DEFAULT_KEYMAP = {
   interact: ['KeyE', 'Space'],
   fish: ['KeyG', 'KeyF'], // pescar: lançar, quicktime e recolher
   stow: ['KeyQ', null], // guardar a vara
+  journal: ['KeyJ', null], // abrir/fechar o diário
 };
 
 export const ACTION_LABELS = {
@@ -35,6 +36,7 @@ export const ACTION_LABELS = {
   interact: 'Interagir / conversar / avançar diálogo',
   fish: 'Pescar (lançar / puxar)',
   stow: 'Guardar a vara',
+  journal: 'Abrir o diário',
 };
 
 /** Escalas de resolução de renderização (1 = nativa da tela). */
