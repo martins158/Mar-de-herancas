@@ -23,6 +23,7 @@ export class Ocean {
     skyHorizonColor = new THREE.Color(0x87ceeb),
     speedScale = 0.6,
     island = { x: -51, z: -9, rx: 34, rz: 22, fall: 2.5 }, // elipse da ilha (mundo); fall = distância (em raios) em que as ondas voltam a 100%
+    island2 = null, // segunda ilha (Ilha da Lanterna): mesma ideia, { x, z, rx, rz, fall }; null = sem segunda ilha
   } = {}) {
     this.size = size;
     this.cell = size / segments;
@@ -34,6 +35,7 @@ export class Ocean {
     this._petrolDeep = new THREE.Color(0x03181f);
     this._petrolShallow = new THREE.Color(0x174852);
     this._island = { fall: 2.5, ...island };
+    this._island2 = island2 ? { fall: 2.5, ...island2 } : null;
 
     this._waves = Ocean.WAVES.map(({ direction, wavelength, amplitude }) => {
       const angle = THREE.MathUtils.degToRad(direction);
@@ -68,6 +70,9 @@ export class Ocean {
           uSkyHorizon: { value: skyHorizonColor.clone() },
           uIsland: { value: new THREE.Vector4(island.x, island.z, island.rx, island.rz) },
           uIslandFall: { value: this._island.fall },
+          // sem segunda ilha: centro longe do mundo, o amortecimento dela fica em 100%
+          uIsland2: { value: island2 ? new THREE.Vector4(island2.x, island2.z, island2.rx, island2.rz) : new THREE.Vector4(1e6, 1e6, 1, 1) },
+          uIsland2Fall: { value: this._island2 ? this._island2.fall : 2.5 },
         },
       ]),
       vertexShader: Ocean.vertexShader,
@@ -102,7 +107,13 @@ export class Ocean {
     const dz = (z - this._island.z) / this._island.rz;
     const d = Math.sqrt(dx * dx + dz * dz);
     // d < 1 é dentro da ilha; de 1 até `fall` o mar vai de calmo a 100% (mesma fórmula do shader)
-    return THREE.MathUtils.smoothstep(d, 1.0, this._island.fall);
+    let damp = THREE.MathUtils.smoothstep(d, 1.0, this._island.fall);
+    if (this._island2) {
+      const ex = (x - this._island2.x) / this._island2.rx;
+      const ez = (z - this._island2.z) / this._island2.rz;
+      damp = Math.min(damp, THREE.MathUtils.smoothstep(Math.sqrt(ex * ex + ez * ez), 1.0, this._island2.fall));
+    }
+    return damp;
   }
 
   getHeightAt(x, z) {
@@ -143,6 +154,8 @@ Ocean.vertexShader = /* glsl */ `
   uniform vec4 uWaves[WAVE_COUNT];
   uniform vec4 uIsland; // xy = centro, z = rx, w = rz
   uniform float uIslandFall; // distância (em raios da elipse) em que o mar volta a 100%
+  uniform vec4 uIsland2; // segunda ilha: xy = centro, z = rx, w = rz
+  uniform float uIsland2Fall;
 
   varying vec3 vWorldPos;
   varying vec2 vSlope;
@@ -161,6 +174,8 @@ Ocean.vertexShader = /* glsl */ `
     vec2 delta = (world.xz - ic) / ir;
     float dist = length(delta);
     float damp = smoothstep(1.0, uIslandFall, dist);
+    vec2 delta2 = (world.xz - uIsland2.xy) / uIsland2.zw;
+    damp = min(damp, smoothstep(1.0, uIsland2Fall, length(delta2)));
 
     float h = 0.0;
     vec2 slope = vec2(0.0);

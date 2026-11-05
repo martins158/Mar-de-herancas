@@ -1,6 +1,7 @@
 // src/entities/Player.js
 import * as THREE from 'three';
 import { FloatingBody } from '../systems/PhysicsSystem.js';
+import { BoatFoam } from './BoatFoam.js';
 
 /**
  * Player
@@ -10,7 +11,8 @@ import { FloatingBody } from '../systems/PhysicsSystem.js';
  *
  * Estrutura: `mesh` é o pivô (posição + giro; câmera, colisão e HUD usam
  * ele). Dentro dele fica `boat`, o visual, que boia e balança nas ondas
- * quando o Player recebe o `ocean`.
+ * quando o Player recebe o `ocean`. Com `ocean` o barco também solta ESPUMA (BoatFoam):
+ * esteira na popa quando anda para frente e espuma nos lados quando tomba.
  *
  * Uso:
  *   const input = new InputSystem();
@@ -241,6 +243,7 @@ export class Player {
     turnSpeed = 1.6, // radianos por segundo
     input = null,    // instância de InputSystem
     ocean = null,    // instância de Ocean: se vier, o barco boia e balança nas ondas
+    foamTexture = null, // URL da textura da espuma (opcional; sem ela usa uma gerada em canvas)
   } = {}) {
     this.speed = speed;
     this.turnSpeed = turnSpeed;
@@ -258,6 +261,10 @@ export class Player {
     this._forward = new THREE.Vector3();
     // com `ocean`: flutuação física (mola + restrição: água nunca entra no barco)
     this.body = ocean ? new FloatingBody({ ocean }) : null;
+    // espuma na água (esteira e lados): vive no mundo, não dentro do barco (ver addTo)
+    this.foam = ocean
+      ? new BoatFoam({ ocean, textureUrl: foamTexture, hullHalfWidth: (t) => halfWidthAt(t, 0), hullLength: HULL.length })
+      : null;
   }
 
   static createBoatMesh() {
@@ -470,6 +477,7 @@ export class Player {
       this.boat.rotation.x = pitch;
       this.boat.rotation.z = roll;
       this.boat.position.y = level - this.mesh.position.y;
+      this.foam?.update(delta, this.mesh.position, this.mesh.rotation.y, roll);
       return;
     }
     const smooth = 1 - Math.exp(-5 * delta);
@@ -503,14 +511,17 @@ export class Player {
     this.boat.rotation.x += (pitch - this.boat.rotation.x) * smooth;
     this.boat.rotation.z += (roll - this.boat.rotation.z) * smooth;
     this.boat.position.y = this._level - this.mesh.position.y;
+    this.foam?.update(delta, this.mesh.position, this.mesh.rotation.y, this.boat.rotation.z);
   }
 
   addTo(scene) {
     scene.add(this.mesh);
+    this.foam?.addTo(scene); // a espuma fica na cena, não no barco
   }
 
   // Input não é escutado aqui — quem cria/destrói o InputSystem chama input.dispose().
   dispose() {
+    this.foam?.dispose();
     this.boat.traverse((obj) => {
       if (!obj.isMesh) return;
       obj.geometry.dispose();

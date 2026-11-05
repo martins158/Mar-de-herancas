@@ -25,11 +25,13 @@ import { FishingSystem } from './systems/FishingSystem.js';
 import { BoatCollider } from './systems/BoatCollider.js';
 import { FishingUI } from './ui/FishingUI.js';
 import { dampFactor } from './utils/MathUtils.js';
-import { FISH_GOAL, POINTS, RESCUE, SCENES, OBJECTIVES } from './data/story.js';
+import { FISH_GOAL, POINTS, RESCUE, SEA_BOUNDS, SEA_MESSAGES, SCENES, OBJECTIVES } from './data/story.js';
 import { SEA_ITEMS, ITEMS_BY_ID } from './data/items.js';
 import { SeaItems } from './world/SeaItems.js';
 import { Shipwreck } from './world/Shipwreck.js';
+import { LanternIsland, lanternIslandConfig } from './world/LanternIsland.js';
 import { RescueSystem } from './systems/RescueSystem.js';
+import { SeaBounds } from './systems/SeaBounds.js';
 import { RescueBar } from './ui/RescueBar.js';
 import { Journal } from './ui/Journal.js';
 import { BottleScene } from './ui/BottleScene.js';
@@ -51,6 +53,8 @@ import { ItemCard } from './ui/ItemCard.js';
  *               Depois do bilhete a bússola aponta para o naufrágio do Esperança II:
  *               parado dentro do aro por alguns segundos, o barco resgata o
  *               Capitão Dutra (RescueSystem); só então a bússola volta para a ilha
+ *               Na Ilha da Lanterna: cena de chegada, cabana do avô (diário) e a água da ilha,
+ *               onde se pesca os peixes lendários (spotId 'ilha-lanterna')
  *   'won'     → não dispara mais: a zona de pesca não é um objetivo de vitória
  */
 
@@ -76,12 +80,36 @@ skybox.addTo(sceneManager.scene);
 const pier = new HarborPier3D();
 pier.addTo(sceneManager.scene);
 
-const ocean = new Ocean({ island: HarborPier3D.ISLAND_CONFIG });
+// a Ilha da Lanterna (Sprint 6) fica no centro do aro 'ilha-lanterna'; o mar também fica calmo em volta dela
+const lanternPos = POINTS.find((p) => p.id === 'ilha-lanterna').position;
+const ocean = new Ocean({
+  island: HarborPier3D.ISLAND_CONFIG,
+  island2: lanternIslandConfig(lanternPos[0], lanternPos[2]),
+});
 ocean.addTo(sceneManager.scene);
 
 // o barco não atravessa o cais, os pilares, os cascos velhos nem a terra
 const collider = new BoatCollider();
 collider.addObstacles(pier.getObstacles());
+
+// a Ilha da Lanterna: aparece depois do bilhete do avô; o barco também não a atravessa
+const lantern = new LanternIsland({ position: [lanternPos[0], lanternPos[2]] });
+lantern.addTo(sceneManager.scene);
+collider.addObstacles(lantern.getObstacles());
+
+// parede invisível do mar (data/story.js): não dá para ir para trás da ilha do porto nem para o nada;
+// o retângulo cresce sozinho se algum ponto ou item do mar ficar fora dele
+const bounds = new SeaBounds(SEA_BOUNDS);
+for (const p of POINTS) bounds.include(p.position[0], p.position[2], (p.radius ?? 15) + 20);
+for (const it of SEA_ITEMS) {
+  const q = it.position;
+  const x = Array.isArray(q) ? q[0] : q?.x;
+  const z = Array.isArray(q) ? q[q.length - 1] : q?.z;
+  if (x < SEA_BOUNDS.minX || x > SEA_BOUNDS.maxX || z < SEA_BOUNDS.minZ || z > SEA_BOUNDS.maxZ) {
+    console.warn(`[SeaBounds] item "${it.id}" fora de SEA_BOUNDS (data/story.js): a parede foi ampliada para ele. Mova o item ou os limites.`);
+  }
+  bounds.include(x, z, 30);
+}
 
 // garrafas e relíquias boiando no mar (data/items.js)
 const seaItems = new SeaItems({ items: SEA_ITEMS, ocean });
@@ -109,10 +137,13 @@ let captain = null; // criado junto do barco, mais abaixo
 function applyStage() {
   const noteFound = gameState.hasFlag('note-found');
   const rescued = gameState.hasFlag('dutra-rescued');
-  pois.setActive('ilha-lanterna', noteFound);
+  // só o ponto ATUAL tem aro e luz (a bússola já mostra o caminho): boia → naufrágio → ilha
+  pois.setActive('primeira-boia', !noteFound);
   pois.setActive('esperanca-ii', noteFound && !rescued);
+  pois.setActive('ilha-lanterna', rescued);
   wreck.setActive(noteFound);
   wreck.setRescued(rescued);
+  lantern.setActive(rescued); // a ilha e a luz dela só aparecem quando ela vira o destino
   captain?.setVisible(rescued);
   seaItems.refresh((id) => gameState.hasCollected(id), (flag) => gameState.hasFlag(flag));
 }
@@ -134,7 +165,7 @@ function setObjective(key) {
   const signature = key ? `${key}:${gameState.fishCaught}` : null;
   if (signature === currentObjective) return;
   currentObjective = signature;
-  const data = key ? OBJECTIVES[key]({ n: gameState.fishCaught, goal: FISH_GOAL, fishKey: keyName('fish') }) : null;
+  const data = key ? OBJECTIVES[key]({ n: gameState.fishCaught, goal: FISH_GOAL, fishKey: keyName('fish'), interactKey: keyName('interact') }) : null;
   hud.setObjective(data?.title ?? null, data?.text ?? null);
 }
 
@@ -182,6 +213,10 @@ const fishing = new FishingSystem({
   onCatch: ({ fish }) => {
     const n = gameState.recordCatch(fish); // o diário guarda tudo; só peixe de verdade conta para a meta
     if (fish.junk) return null;
+    if (fish.tier === 'lendario') {
+      gameState.setFlag('island-fished'); // pescou na água da ilha (quebrou o pacto): vai pesar no final
+      return 'Ilha da Lanterna';
+    }
     if (n >= FISH_GOAL && !gameState.hasFlag('note-found')) {
       fishing.endSessionAfterResult(); // sai da pesca depois do cartão
       pendingScene = 'note';
@@ -307,6 +342,7 @@ engine.start((delta, elapsed) => {
   pier.update(elapsed);
   pois.update(elapsed, ocean);
   wreck.update(elapsed);
+  lantern.update(elapsed);
 
   const { phase } = gameState;
 
@@ -411,19 +447,45 @@ engine.start((delta, elapsed) => {
   if (!fishing.active) {
     player.update(delta);
     collider.resolve(player.mesh.position, player.mesh.rotation.y);
+    bounds.resolve(player.mesh.position); // parede invisível do mar
   } else {
     player.float(delta); // parado, mas ainda boiando nas ondas
   }
 
-  // parado na zona: a tecla de pescar entra no modo de pescaria
-  const canFish = inSpot && !fishing.active && !transitioning;
+  // parado na zona (ou, depois da chegada, na água da ilha): a tecla de pescar entra no modo de pescaria
+  const islandReached = gameState.hasFlag('island-reached');
+  const inIslandWater = islandReached && distTo(island, boatPos) <= island.radius;
+  const canFish = (inSpot || inIslandWater) && !fishing.active && !transitioning;
   if (canFish) {
-    if (input.consumeFishPress()) fishing.start();
+    if (input.consumeFishPress()) {
+      fishing.spotId = inIslandWater ? 'ilha-lanterna' : 'primeira-boia'; // decide os peixes (data/fish.js)
+      fishing.start();
+    }
   } else if (!fishing.active) {
     input.consumeFishPress();
     input.consumeFishRelease();
   }
-  hud.setPrompt(canFish ? `Pressione ${keyName('fish')} para pescar` : null);
+
+  // cabana do avô: perto do cais da ilha, a tecla de interagir entra (o diário abre a cena `cabin`)
+  const landing = lantern.getLanding();
+  const nearCabin =
+    islandReached && !fishing.active && !transitioning &&
+    Math.hypot(boatPos.x - landing.x, boatPos.z - landing.z) <= landing.radius;
+  if (nearCabin) {
+    if (input.consumeInteract()) {
+      input.reset();
+      hud.setPrompt(null);
+      playScene('cabin', () => gameState.setFlag('cabin-read'));
+    }
+  } else if (!fishing.active) {
+    input.consumeInteract(); // descarta toques soltos para não abrirem a cabana depois
+  }
+  const nearWall = !fishing.active && bounds.isNear(boatPos); // perto da parede invisível: rumo errado
+  hud.setPrompt(
+    nearWall && !dialogue.isOpen ? SEA_MESSAGES.wrongWay
+      : nearCabin && !dialogue.isOpen ? `Pressione ${keyName('interact')} para entrar na cabana`
+      : canFish && !dialogue.isOpen ? `Pressione ${keyName('fish')} para pescar` : null
+  );
 
   fishing.update(delta, elapsed);
 
@@ -469,12 +531,12 @@ engine.start((delta, elapsed) => {
     rescueBar.hide();
   }
 
-  // chegou à ilha (provisório até a Sprint 6)
+  // chegou à Ilha da Lanterna: cena de chegada (depois dela, cabana e pesca lendária)
   const target = currentTarget();
   const inTarget = distTo(target, boatPos) <= target.radius;
   if (target === island && inTarget && !gameState.hasVisited(island.id) && !dialogue.isOpen) {
     gameState.visitIsland(island.id);
-    playScene(gameState.hasFlag('dutra-rescued') ? 'islandDutra' : 'islandPlaceholder');
+    playScene(gameState.hasFlag('dutra-rescued') ? 'islandDutra' : 'islandPlaceholder', () => gameState.setFlag('island-reached'));
   }
 
   // objetivo do HUD
@@ -482,7 +544,8 @@ engine.start((delta, elapsed) => {
   if (!fishing.active) {
     if (gameState.hasFlag('note-found')) {
       if (!gameState.hasFlag('dutra-rescued')) objective = inTarget ? 'wreckHere' : 'goWreck';
-      else objective = inTarget ? 'islandHere' : 'goIslandDutra';
+      else if (!gameState.hasFlag('island-reached')) objective = inTarget ? 'islandHere' : 'goIslandDutra';
+      else objective = gameState.hasFlag('cabin-read') ? 'islandFish' : 'cabin';
     }
     else if (inSpot) objective = 'fish';
     else objective = gameState.fishCaught === 0 ? 'goFishing' : 'backFishing';

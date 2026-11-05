@@ -49,6 +49,13 @@ const CAST_MAX = 34;
 const WAIT_RANGE = [4, 7]; // s
 const BOAT_REEL_DISTANCE = 2.6; // até onde o peixe é trazido (encosta no casco)
 
+// pausas do tutorial que pedem SEGURAR a tecla (as do recolher): o jogo só continua quando o jogador segura
+const PAUSE_HOLD = {
+  show: 0.6, // s mínimos com o painel na tela antes de aceitar a tecla (tempo de ler)
+  read: 1.8, // s: passado isso, quem já está segurando a tecla conta como quem quer continuar
+  hold: 0.3, // s segurando para dispensar o painel (e o recolher já segue com a tecla apertada)
+};
+
 const QTE = {
   zoneWidth: 0.3, // fração da barra
   speed: 0.95, // barras por segundo
@@ -161,19 +168,39 @@ export class FishingSystem {
 
   // ---------- pausa (tutorial) ----------
 
-  /** Congela o jogo e mostra o passo do tutorial; ao apertar a tecla, chama onResume. */
-  _pauseWith(step, onResume) {
+  /**
+   * Congela o jogo e mostra o passo do tutorial; ao apertar a tecla, chama onResume.
+   * Com { hold: true} o painel só some quando o jogador SEGURA a tecla (e o jogo segue com ela
+   * já apertada, sem precisar soltar e apertar de novo): é o caso das pausas do recolher.
+   */
+  _pauseWith(step, onResume, { hold = false } = {}) {
     const data = TUTORIAL[step](this.keys, this._retry);
-    this._pause = { onResume };
-    this.ui.showTutorial({ ...data, key: this.keys.fish() });
+    this._pause = { onResume, hold, shown: 0, armed: false, heldFor: 0 };
+    const text = hold && data.text ? `${data.text} Para continuar, SEGURE ${this.keys.fish()} (não precisa soltar).` : data.text;
+    this.ui.showTutorial({ ...data, text, key: this.keys.fish() });
     this.input.consumeFishPress();
     this.input.consumeFishRelease();
   }
 
-  _updatePause() {
-    this.input.consumeFishRelease();
-    if (!this.input.consumeFishPress()) return;
-    const { onResume } = this._pause;
+  _updatePause(delta) {
+    const pause = this._pause;
+    if (pause.hold) {
+      this.input.consumeFishPress();
+      this.input.consumeFishRelease();
+      pause.shown += delta;
+      const held = this.input.fishHeld;
+      if (!pause.armed) {
+        // a tecla ainda pode estar apertada do quicktime: espera soltar (ou o tempo de leitura passar)
+        if ((!held && pause.shown >= PAUSE_HOLD.show) || pause.shown >= PAUSE_HOLD.read) pause.armed = true;
+        else return;
+      }
+      pause.heldFor = held ? pause.heldFor + delta : 0;
+      if (pause.heldFor < PAUSE_HOLD.hold) return;
+    } else {
+      this.input.consumeFishRelease();
+      if (!this.input.consumeFishPress()) return;
+    }
+    const { onResume } = pause;
     this._pause = null;
     this.ui.hideTutorial();
     onResume?.();
@@ -212,7 +239,7 @@ export class FishingSystem {
   // ---------- loop ----------
 
   update(delta, elapsed) {
-    if (this._pause) this._updatePause();
+    if (this._pause) this._updatePause(delta);
     else switch (this.phase) {
       case 'pickup': this._updatePickup(); break;
       case 'ready': this._updateReady(); break;
@@ -431,9 +458,9 @@ export class FishingSystem {
     this._setPhase('reel');
 
     if (tut) {
-      this._pauseWith('reelIntro', () => {
-        this._reel.waitRelease = true; // o treino só conclui quando o peixe for pescado (_finish)
-      });
+      // pede para SEGURAR a tecla: ao dispensar o painel o recolher já segue com ela apertada
+      // (o treino só conclui quando o peixe for pescado, em _finish)
+      this._pauseWith('reelIntro', null, { hold: true });
     }
   }
 
@@ -519,9 +546,7 @@ export class FishingSystem {
       this._finish(false, 'A linha ficou frouxa: a isca soltou e o peixe levou.');
     } else if (r.tutorial && !r.dangerShown && r.slack > 0.35) {
       r.dangerShown = true; // segunda pausa do tutorial: o que acontece fora da zona
-      this._pauseWith('reelDanger', () => {
-        r.waitRelease = true;
-      });
+      this._pauseWith('reelDanger', null, { hold: true });
     }
   }
 

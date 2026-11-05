@@ -85,7 +85,7 @@ export class PointsOfInterest {
     const ringMaterial = new THREE.MeshBasicMaterial({
       color: 0xffd27a,
       transparent: true,
-      opacity: 0.7,
+      opacity: 0.45,
       depthWrite: false,
       side: THREE.DoubleSide,
     });
@@ -100,7 +100,7 @@ export class PointsOfInterest {
       const beamMaterial = new THREE.MeshBasicMaterial({
         color: 0xffe2a0,
         transparent: true,
-        opacity: 0.2,
+        opacity: 0.1,
         depthWrite: false,
         side: THREE.DoubleSide,
         blending: THREE.AdditiveBlending,
@@ -155,7 +155,7 @@ export class PointsOfInterest {
     for (const point of this.points) {
       if (!point.active) continue;
       this._writeRing(point, ocean);
-      if (point._beam) point._beam.material.opacity = 0.17 + 0.06 * Math.sin(elapsed * 1.3); // a luz respira
+      if (point._beam) point._beam.material.opacity = 0.09 + 0.03 * Math.sin(elapsed * 1.3); // a luz respira
     }
   }
 
@@ -190,7 +190,7 @@ export class PointsOfInterest {
       const visited = isVisited(point.id);
       const { ringMaterial } = point._materials;
       ringMaterial.color.set(visited ? 0x6fe08a : 0xffd27a);
-      ringMaterial.opacity = visited ? 0.35 : 0.7;
+      ringMaterial.opacity = visited ? 0.2 : 0.45;
     }
   }
 
