@@ -21,15 +21,19 @@ import { TUTORIAL } from '../data/tutorial.js';
  *   'result'   → pescou / a isca soltou (alguns segundos)
  *   'putaway'  → guarda a vara e sai do modo
  *
- * TUTORIAL (primeira pescaria, uma vez): lançar normal; o quicktime desacelera e
- * CONGELA no ponto perfeito (painel + espera a tecla); depois o recolher abre com
- * uma pausa explicativa (e outra na primeira vez que a linha afrouxa).
+ * TUTORIAL (primeira pescaria): painel "é só um treino"; lançar normal; o quicktime
+ * desacelera e CONGELA no ponto perfeito (painel + espera a tecla); depois o recolher
+ * abre com uma pausa explicativa (e outra na primeira vez que a linha afrouxa).
+ * O treino só é CONCLUÍDO quando o jogador pesca o peixe (tutorial.done). Se a isca
+ * soltar, chama tutorial.failed e o treino REPETE com as "dicas de mestre" (retry).
  * Durante as pausas o jogo congela (this._pause) e só o painel responde.
  *
  * Uso:
  *   const fishing = new FishingSystem({ input, sailor, rig, ui, ocean, boat, keys, tutorial, spotId });
- *   // tutorial = { pending: () => bool, done: () => void } (opcional)
+ *   // tutorial = { pending, done, failed, attempts } (opcional; ver main.js)
  *   // spotId = ponto de pesca ('primeira-boia'): decide quais peixes aparecem (data/fish.js)
+ *   // onCatch = chamado a cada peixe/achado pescado; pode devolver um texto para o cartão
+ *   fishing.endSessionAfterResult();  // depois do cartão, guarda a vara e sai do modo (cenas da história)
  *   // input = InputSystem (fishHeld, consumeFishPress/Release, consumeStow)
  *   // keys = { fish: () => 'G', stow: () => 'Q' } (nomes das teclas para as dicas)
  *   fishing.start();              // entra no modo (barco parado na zona)
@@ -68,13 +72,17 @@ const rand = (min, max) => min + Math.random() * (max - min);
 const clamp01 = (x) => Math.min(Math.max(x, 0), 1);
 
 export class FishingSystem {
-  constructor({ input, sailor, rig, ui, ocean = null, boat, keys = null, tutorial = null, spotId = 'primeira-boia' }) {
+  constructor({ input, sailor, rig, ui, ocean = null, boat, keys = null, tutorial = null, spotId = 'primeira-boia', onCatch = null }) {
+    this.onCatch = onCatch; // ({ fish, kg }) => texto extra do cartão (ex.: "Peixes 2/4") ou null
+    this._exitAfterResult = false;
     this.keys = keys ?? { fish: () => 'G', stow: () => 'Q' };
     this.tutorial = tutorial;
     this.spotId = spotId;
     this._pause = null; // { onResume }: jogo congelado esperando a tecla
     this._timeScale = 1; // câmera lenta do tutorial (sailor e boia)
     this._tutorialRun = false;
+    this._retry = false; // treino repetido (o jogador perdeu o 1º peixe): usa as dicas de mestre
+    this._introShown = false; // o painel "é só um treino" já apareceu nesta rodada?
     this.input = input;
     this.sailor = sailor;
     this.rig = rig;
@@ -110,6 +118,8 @@ export class FishingSystem {
     this.ui.setHint('');
     this.focusDistance = 6;
     this._tutorialRun = this.tutorial?.pending() ?? false; // primeira pescaria do jogo?
+    this._retry = this._tutorialRun && (this.tutorial?.attempts?.() ?? 0) > 0;
+    this._introShown = false;
     this._timeScale = 1;
     this._setPhase('pickup');
   }
@@ -153,7 +163,7 @@ export class FishingSystem {
 
   /** Congela o jogo e mostra o passo do tutorial; ao apertar a tecla, chama onResume. */
   _pauseWith(step, onResume) {
-    const data = TUTORIAL[step](this.keys);
+    const data = TUTORIAL[step](this.keys, this._retry);
     this._pause = { onResume };
     this.ui.showTutorial({ ...data, key: this.keys.fish() });
     this.input.consumeFishPress();
@@ -169,6 +179,17 @@ export class FishingSystem {
     onResume?.();
   }
 
+  /** Vara pronta; no treino, antes mostra o painel "é só um treino" (ou "mais um treino"). */
+  _readyOrIntro() {
+    if (this._tutorialRun && !this._introShown) {
+      this._introShown = true;
+      this.ui.hideResult();
+      this._pauseWith('intro', () => this._toReady());
+    } else {
+      this._toReady();
+    }
+  }
+
   _toReady() {
     this.rig.hide();
     this.ui.hideGauge();
@@ -182,7 +203,7 @@ export class FishingSystem {
     this.focusDistance = 6;
     this.ui.setHint(
       this._tutorialRun
-        ? TUTORIAL.firstCast(this.keys)
+        ? TUTORIAL.firstCast(this.keys, this._retry)
         : `Segure ${this.keys.fish()} para lançar  ·  ${this.keys.stow()} guarda a vara`
     );
     this._setPhase('ready');
@@ -215,7 +236,7 @@ export class FishingSystem {
 
   _updatePickup() {
     this.input.consumeFishPress();
-    if (this.sailor.isReady) this._toReady();
+    if (this.sailor.isReady) this._readyOrIntro();
   }
 
   _updateReady() {
@@ -411,9 +432,7 @@ export class FishingSystem {
 
     if (tut) {
       this._pauseWith('reelIntro', () => {
-        this._reel.waitRelease = true;
-        this.tutorial?.done(); // o jogador já viu o tutorial: não repete
-        this._tutorialRun = false;
+        this._reel.waitRelease = true; // o treino só conclui quando o peixe for pescado (_finish)
       });
     }
   }
@@ -515,12 +534,25 @@ export class FishingSystem {
     this.input.consumeFishPress();
     this.input.consumeFishRelease();
 
+    if (this._tutorialRun) {
+      if (caught) {
+        this.tutorial?.done(); // pescou o 1º peixe: treino concluído
+        this._tutorialRun = false;
+      } else {
+        this.tutorial?.failed?.(); // perdeu: o treino repete com dica de mestre
+        this._retry = true;
+        this._introShown = false;
+        message = 'Foi só um treino, nada se perdeu. Vamos de novo, agora com uma dica de mestre.';
+      }
+    }
+
     if (caught) {
       const fish = this._fish;
       const kg = rand(fish.kg[0], fish.kg[1]);
       if (fish.junk) this.stats.junk += 1;
       else this.stats.caught += 1;
       this.lastCatch = { fish, kg };
+      const extra = this.onCatch?.({ fish, kg }) ?? null;
       this.sailor.setMode('lift', 9);
       const to = this.sailor.getRodTip(this._tmpTip).clone();
       to.y -= 0.8;
@@ -528,7 +560,7 @@ export class FishingSystem {
       this.ui.showResult({
         ok: true,
         title: fish.junk ? `Você puxou: ${fish.name}` : `${fish.name} fisgado!`,
-        subtitle: `${kg.toFixed(1).replace('.', ',')} kg`,
+        subtitle: `${kg.toFixed(1).replace('.', ',')} kg${extra ? `  ·  ${extra}` : ''}`,
         fish,
       });
     } else {
@@ -546,7 +578,23 @@ export class FishingSystem {
     this._timer += delta;
     this.input.consumeFishPress();
     this.input.consumeFishRelease();
-    if (this._timer >= REEL.resultTime) this._toReady();
+    if (this._timer >= REEL.resultTime) {
+      if (this._exitAfterResult) {
+        // a história pede para sair da pesca (ex.: bilhete do avô)
+        this._exitAfterResult = false;
+        this.rig.hide();
+        this.ui.hideAll();
+        this.sailor.putAway();
+        this._setPhase('putaway');
+      } else {
+        this._readyOrIntro();
+      }
+    }
+  }
+
+  /** Pede para sair do modo de pesca assim que o cartão de resultado terminar. */
+  endSessionAfterResult() {
+    this._exitAfterResult = true;
   }
 
   _updatePutAway() {

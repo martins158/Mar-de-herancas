@@ -19,11 +19,21 @@ import { PointsOfInterest } from './world/PointsOfInterest.js';
 import { Player } from './entities/Player.js';
 import { Compass } from './entities/Compass.js';
 import { Sailor } from './entities/Sailor.js';
+import { Captain } from './entities/Captain.js';
 import { FishingRig } from './entities/FishingRig.js';
 import { FishingSystem } from './systems/FishingSystem.js';
 import { BoatCollider } from './systems/BoatCollider.js';
 import { FishingUI } from './ui/FishingUI.js';
 import { dampFactor } from './utils/MathUtils.js';
+import { FISH_GOAL, POINTS, RESCUE, SCENES, OBJECTIVES } from './data/story.js';
+import { SEA_ITEMS, ITEMS_BY_ID } from './data/items.js';
+import { SeaItems } from './world/SeaItems.js';
+import { Shipwreck } from './world/Shipwreck.js';
+import { RescueSystem } from './systems/RescueSystem.js';
+import { RescueBar } from './ui/RescueBar.js';
+import { Journal } from './ui/Journal.js';
+import { BottleScene } from './ui/BottleScene.js';
+import { ItemCard } from './ui/ItemCard.js';
 
 /*
  * Fluxo do jogo (GameState.phase):
@@ -32,7 +42,15 @@ import { dampFactor } from './utils/MathUtils.js';
  *               vizinhos e, no fim do cais, o pai; o botão "Zarpar" da última
  *               conversa leva ao mar
  *   'sailing' → mar 3D: barco + bússola até a zona de pesca; parado nela, a
- *               tecla de pescar (G/F) entra no modo de pescaria (FishingSystem)
+ *               tecla de pescar (G/F) entra no modo de pescaria (FishingSystem).
+ *               Pescados FISH_GOAL peixes, aparece o bilhete do avô e a bússola
+ *               passa a apontar para a Ilha da Lanterna (data/story.js).
+ *               No caminho o mar devolve garrafas (?) e relíquias (!): chegar
+ *               perto recolhe: garrafa abre a cena do papel (BottleScene), relíquia
+ *               abre o cartão (ItemCard); o diário (J) guarda tudo
+ *               Depois do bilhete a bússola aponta para o naufrágio do Esperança II:
+ *               parado dentro do aro por alguns segundos, o barco resgata o
+ *               Capitão Dutra (RescueSystem); só então a bússola volta para a ilha
  *   'won'     → não dispara mais: a zona de pesca não é um objetivo de vitória
  */
 
@@ -40,6 +58,10 @@ const settings = new Settings();
 const sceneManager = new SceneManager();
 const engine = new Engine({ sceneManager });
 const input = new InputSystem({ settings });
+// ?novo na URL apaga o progresso salvo (peixes, bilhete, tutorial) e recomeça.
+// Em desenvolvimento (npm run dev) o save é apagado SEMPRE; ?manter na URL mantém o save.
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.has('novo') || (import.meta.env.DEV && !urlParams.has('manter'))) GameState.clearSave();
 const gameState = new GameState(); // começa em 'menu'
 
 engine.setRenderScale(settings.renderScale);
@@ -61,31 +83,75 @@ ocean.addTo(sceneManager.scene);
 const collider = new BoatCollider();
 collider.addObstacles(pier.getObstacles());
 
-// só o terceiro ponto de interesse sobrou: ele é a zona de pesca (sem colisão)
-const pois = new PointsOfInterest({ positions: [PointsOfInterest.defaultLayout()[2]] });
+// garrafas e relíquias boiando no mar (data/items.js)
+const seaItems = new SeaItems({ items: SEA_ITEMS, ocean });
+seaItems.addTo(sceneManager.scene);
+
+// pontos de interesse (aros sem colisão): a Primeira Boia (zona de pesca) e, depois do
+// bilhete do avô, a Ilha da Lanterna (data/story.js)
+const pois = new PointsOfInterest({
+  points: POINTS.map((p) => ({ ...p, position: new THREE.Vector3(...p.position) })),
+});
 pois.addTo(sceneManager.scene);
 gameState.setTotalIslands(0); // 0 = sem objetivo de vitória
-const spot = pois.points[0];
-const SPOT_RADIUS = spot.radius ?? 12; // o mesmo raio do aro (PointsOfInterest)
+const spot = pois.getById('primeira-boia');
+const island = pois.getById('ilha-lanterna');
+const wreckPoint = pois.getById('esperanca-ii');
+const SPOT_RADIUS = spot.radius; // o mesmo raio do aro (PointsOfInterest)
+
+// naufrágio do Esperança II (aparece depois do bilhete) e o resgate do Capitão Dutra
+const wreck = new Shipwreck({ position: [wreckPoint.position.x, wreckPoint.position.z], ocean });
+wreck.addTo(sceneManager.scene);
+const rescue = new RescueSystem({ position: wreckPoint.position, radius: wreckPoint.radius, ...RESCUE });
+let captain = null; // criado junto do barco, mais abaixo
+
+/** Libera/esconde os pontos conforme a história (flags salvas no GameState). */
+function applyStage() {
+  const noteFound = gameState.hasFlag('note-found');
+  const rescued = gameState.hasFlag('dutra-rescued');
+  pois.setActive('ilha-lanterna', noteFound);
+  pois.setActive('esperanca-ii', noteFound && !rescued);
+  wreck.setActive(noteFound);
+  wreck.setRescued(rescued);
+  captain?.setVisible(rescued);
+  seaItems.refresh((id) => gameState.hasCollected(id), (flag) => gameState.hasFlag(flag));
+}
+applyStage();
+
+/** Destino da bússola agora: boia → naufrágio (até resgatar o Dutra) → ilha. */
+const currentTarget = () => {
+  if (!gameState.hasFlag('note-found')) return spot;
+  return gameState.hasFlag('dutra-rescued') ? island : wreckPoint;
+};
+const distTo = (p, pos) => Math.hypot(p.position.x - pos.x, p.position.z - pos.z);
 
 // teclas (remapeáveis no menu) para os textos da tela
 const keyName = (action) => formatKey(settings.keymap[action].find(Boolean));
 
-// objetivos/dicas do cartão do HUD (texto em função, para acompanhar o remapeamento)
-const OBJECTIVES = {
-  goFishing: () => ({ title: 'Objetivo', text: 'Vá para a área de pesca inicial.' }),
-  fish: () => ({ title: 'Área de pesca', text: `Pare o barco e pesque (${keyName('fish')}).` }),
-};
+// cartão de objetivo do HUD: textos em data/story.js (a assinatura inclui o nº de peixes)
 let currentObjective = null;
 function setObjective(key) {
-  if (key === currentObjective) return;
-  currentObjective = key;
-  const data = key ? OBJECTIVES[key]() : null;
+  const signature = key ? `${key}:${gameState.fishCaught}` : null;
+  if (signature === currentObjective) return;
+  currentObjective = signature;
+  const data = key ? OBJECTIVES[key]({ n: gameState.fishCaught, goal: FISH_GOAL, fishKey: keyName('fish') }) : null;
   hud.setObjective(data?.title ?? null, data?.text ?? null);
 }
 
+// cenas de história pendentes (tocam quando a pesca terminar)
+let pendingScene = null;
+function playScene(id, onClose, custom = null) {
+  const scene = custom ?? SCENES[id];
+  input.reset();
+  hud.setPrompt(null);
+  dialogue.open({ name: scene.name, lines: scene.lines, onClose });
+}
+
 const isVisited = (id) => gameState.hasVisited(id);
-gameState.onChange(() => pois.refresh(isVisited));
+gameState.onChange(() => {
+  pois.refresh(isVisited);
+  seaItems.refresh((id) => gameState.hasCollected(id), (flag) => gameState.hasFlag(flag));
+});
 pois.refresh(isVisited);
 
 const player = new Player({
@@ -101,6 +167,9 @@ compass.addTo(sceneManager.scene);
 // marinheiro dentro do barco + pescaria
 const sailor = new Sailor();
 player.boat.add(sailor.group);
+captain = new Captain(); // o Dutra só aparece depois do resgate
+player.boat.add(captain.group);
+captain.setVisible(gameState.hasFlag('dutra-rescued'));
 
 const fishUI = new FishingUI();
 const rig = new FishingRig({ ocean });
@@ -109,10 +178,22 @@ const fishing = new FishingSystem({
   input, sailor, rig, ui: fishUI, ocean, boat: player.mesh,
   keys: { fish: () => keyName('fish'), stow: () => keyName('stow') },
   spotId: 'primeira-boia',
-  // a primeira pescaria do jogo dispara o tutorial (uma vez por sessão)
+  // cada peixe de verdade conta para a meta; no último, o bilhete do avô
+  onCatch: ({ fish }) => {
+    const n = gameState.recordCatch(fish); // o diário guarda tudo; só peixe de verdade conta para a meta
+    if (fish.junk) return null;
+    if (n >= FISH_GOAL && !gameState.hasFlag('note-found')) {
+      fishing.endSessionAfterResult(); // sai da pesca depois do cartão
+      pendingScene = 'note';
+    }
+    return `Peixes ${Math.min(n, FISH_GOAL)}/${FISH_GOAL}`;
+  },
+  // a primeira pescaria do jogo é um treino; se o jogador não pescar o 1º peixe, repete
   tutorial: {
     pending: () => !gameState.hasTutorial('fishing'),
-    done: () => gameState.completeTutorial('fishing'),
+    done: () => gameState.completeTutorial('fishing'), // pescou o 1º peixe
+    failed: () => gameState.failTutorial('fishing'), // perdeu: o treino se repete com uma dica de mestre
+    attempts: () => gameState.tutorialAttempts('fishing'),
   },
 });
 
@@ -138,11 +219,20 @@ engine.addResizeListener(() => harbor.onResize());
 
 const hud = new HUD({ gameState });
 hud.setVisible(false);
+hud.setToolHint(`${keyName('journal')} · Diário`);
+
+const journal = new Journal({ gameState, keyLabel: () => keyName('journal') });
+const bottleScene = new BottleScene({ settings }); // garrafa recolhida: o papel sai e abre
+const rescueBar = new RescueBar(); // progresso do resgate (topo da tela)
+const itemCard = new ItemCard({ settings }); // relíquia recolhida: cartão com o desenho
 
 const dialogue = new DialogueBox({ settings });
 
 const fade = new ScreenFade();
 let transitioning = false;
+let boatSpeed = 0; // u/s, suavizada: o resgate exige o barco quase parado
+const lastBoat = new THREE.Vector3();
+let hasLastBoat = false;
 
 const menu = new MainMenu({ settings, onPlay: startGame });
 menu.show();
@@ -150,6 +240,8 @@ menu.show();
 /** Leva o barco de volta ao ponto de partida e posiciona a câmera atrás dele. */
 function resetBoat() {
   input.reset();
+  hasLastBoat = false;
+  boatSpeed = 0;
   player.mesh.position.set(0, 0.6, 0);
   player.mesh.rotation.set(0, 0, 0);
   sceneManager.camera.position.set(0, 8, 14);
@@ -214,6 +306,7 @@ engine.start((delta, elapsed) => {
   ocean.update(elapsed);
   pier.update(elapsed);
   pois.update(elapsed, ocean);
+  wreck.update(elapsed);
 
   const { phase } = gameState;
 
@@ -260,8 +353,59 @@ engine.start((delta, elapsed) => {
 
   // 'sailing' ou 'won'
   const boatPos = player.mesh.position;
-  const toSpot = Math.hypot(spot.position.x - boatPos.x, spot.position.z - boatPos.z);
-  const inSpot = toSpot <= SPOT_RADIUS;
+  const inSpot = distTo(spot, boatPos) <= SPOT_RADIUS;
+
+  seaItems.update(elapsed, boatPos);
+  captain.update(delta, elapsed);
+
+  // velocidade do barco (suavizada) para o resgate
+  if (hasLastBoat && delta > 0) {
+    const raw = Math.hypot(boatPos.x - lastBoat.x, boatPos.z - lastBoat.z) / delta;
+    boatSpeed += (raw - boatSpeed) * dampFactor(6, delta);
+  }
+  lastBoat.copy(boatPos);
+  hasLastBoat = true;
+
+  // diário aberto: o jogo espera, o barco só boia
+  if (journal.isOpen) {
+    rescueBar.hide();
+    if (input.consumeJournal()) journal.close();
+    player.float(delta);
+    hud.setPrompt(null);
+    compass.update(delta, boatPos, null);
+    followCamera.update(delta);
+    skybox.update(sceneManager.camera.position);
+    return;
+  }
+
+  // garrafa ou relíquia recém-recolhida na tela: o barco fica parado, boiando
+  const itemScreen = bottleScene.isOpen ? bottleScene : itemCard.isOpen ? itemCard : null;
+  if (itemScreen) {
+    rescueBar.hide();
+    if (input.consumeInteract()) itemScreen.advance();
+    input.consumeJournal(); // J durante a cena não abre o diário depois
+    player.float(delta);
+    hud.setPrompt(null);
+    setObjective(null);
+    compass.update(delta, boatPos, null);
+    followCamera.update(delta);
+    skybox.update(sceneManager.camera.position);
+    return;
+  }
+
+  // cena de história aberta (bilhete, chegada): o barco fica parado, boiando
+  if (dialogue.isOpen) {
+    rescueBar.hide();
+    if (input.consumeInteract()) dialogue.advance();
+    dialogue.update(delta);
+    player.float(delta);
+    hud.setPrompt(null);
+    setObjective(null);
+    compass.update(delta, boatPos, null);
+    followCamera.update(delta);
+    skybox.update(sceneManager.camera.position);
+    return;
+  }
 
   // modo de pesca: o barco fica parado; senão, navega e esbarra nos sólidos
   if (!fishing.active) {
@@ -280,17 +424,78 @@ engine.start((delta, elapsed) => {
     input.consumeFishRelease();
   }
   hud.setPrompt(canFish ? `Pressione ${keyName('fish')} para pescar` : null);
-  setObjective(fishing.active ? null : inSpot ? 'fish' : 'goFishing');
 
   fishing.update(delta, elapsed);
+
+  // diário: J abre (não durante a pesca nem durante uma cena)
+  if (input.consumeJournal() && !fishing.active && !transitioning) journal.open();
+
+  // garrafa ou relíquia ao alcance: recolhe e abre a cena (garrafa) ou o cartão (relíquia)
+  if (!fishing.active && !journal.isOpen && !transitioning) {
+    const found = seaItems.getNearby(boatPos);
+    if (found) {
+      gameState.collectItem(found.id); // some do mar (onChange atualiza os itens)
+      const item = ITEMS_BY_ID[found.id];
+      input.reset();
+      hud.setPrompt(null);
+      (item.kind === 'bottle' ? bottleScene : itemCard).open(item);
+    }
+  }
+
+  // a pesca terminou e há uma cena esperando (o bilhete do avô)
+  if (pendingScene && !fishing.active && !transitioning && !dialogue.isOpen) {
+    const id = pendingScene;
+    pendingScene = null;
+    if (id === 'note') {
+      playScene('note', () => {
+        gameState.setFlag('note-found');
+        applyStage();
+      });
+    }
+  }
+
+  // resgate do Capitão Dutra: parado dentro do aro do naufrágio
+  if (gameState.hasFlag('note-found') && !gameState.hasFlag('dutra-rescued') && !fishing.active && !transitioning) {
+    const r = rescue.update(delta, boatPos, boatSpeed);
+    if (r.inside) rescueBar.show(r);
+    else rescueBar.hide();
+    if (r.done) {
+      rescueBar.hide();
+      gameState.setFlag('dutra-rescued');
+      applyStage(); // a luz de socorro apaga, o aro some, o Dutra aparece no barco
+      playScene('rescue');
+    }
+  } else {
+    rescueBar.hide();
+  }
+
+  // chegou à ilha (provisório até a Sprint 6)
+  const target = currentTarget();
+  const inTarget = distTo(target, boatPos) <= target.radius;
+  if (target === island && inTarget && !gameState.hasVisited(island.id) && !dialogue.isOpen) {
+    gameState.visitIsland(island.id);
+    playScene(gameState.hasFlag('dutra-rescued') ? 'islandDutra' : 'islandPlaceholder');
+  }
+
+  // objetivo do HUD
+  let objective = null;
+  if (!fishing.active) {
+    if (gameState.hasFlag('note-found')) {
+      if (!gameState.hasFlag('dutra-rescued')) objective = inTarget ? 'wreckHere' : 'goWreck';
+      else objective = inTarget ? 'islandHere' : 'goIslandDutra';
+    }
+    else if (inSpot) objective = 'fish';
+    else objective = gameState.fishCaught === 0 ? 'goFishing' : 'backFishing';
+  }
+  setObjective(objective);
 
   // a água escurece para azul petróleo dentro da zona de pesca
   petrol += ((inSpot ? 1 : 0) - petrol) * dampFactor(1.6, delta);
   ocean.setPetrol(petrol);
 
-  // bússola: aponta para a zona de pesca (some enquanto pesca e dentro do aro)
-  const showCompass = !fishing.active && !inSpot; // dentro do aro a seta some (volta ao sair)
-  compass.update(delta, boatPos, showCompass ? spot.position : null);
+  // bússola: aponta para o destino atual (some enquanto pesca e dentro do aro)
+  const showCompass = !fishing.active && !inTarget;
+  compass.update(delta, boatPos, showCompass ? target.position : null);
 
   if (fishing.active) {
     updateFishingCamera(delta);

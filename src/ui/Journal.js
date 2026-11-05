@@ -1,5 +1,6 @@
 // src/ui/Journal.js
 import { fishArt } from './FishIcon.js';
+import { itemArt } from './ItemIcon.js';
 import { FISH, TIERS } from '../data/fish.js';
 import { SEA_ITEMS, itemJournalText } from '../data/items.js';
 
@@ -9,6 +10,7 @@ import { SEA_ITEMS, itemJournalText } from '../data/items.js';
  * Relíquias). O que ainda não foi encontrado aparece como "???". Clicar num
  * cartão mostra o texto embaixo. Abre/fecha com a tecla do diário (J).
  * Só mostra dados do GameState (fishLog e collected); não guarda nada.
+ * Cada garrafa e relíquia tem o desenho próprio de data/items.js (`art`, via ItemIcon).
  *
  * Uso:
  *   const journal = new Journal({ gameState });
@@ -16,8 +18,6 @@ import { SEA_ITEMS, itemJournalText } from '../data/items.js';
  *   journal.dispose();
  */
 
-const BOTTLE_SVG = `<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg"><g stroke="#2b1d12" stroke-width="2.4" stroke-linejoin="round"><path d="M22 6h12v10l8 10v24q0 4-4 4H18q-4 0-4-4V26l8-10z" fill="#6b9a74" fill-opacity=".8"/><rect x="23" y="2" width="10" height="7" fill="#9a7448"/><rect x="21" y="28" width="14" height="20" fill="#f1e6c8"/></g></svg>`;
-const RELIC_SVG = `<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg"><g stroke="#2b1d12" stroke-width="2.4" stroke-linejoin="round"><rect x="8" y="18" width="44" height="30" fill="#7a5232"/><rect x="6" y="14" width="48" height="8" fill="#d9a93c"/><rect x="6" y="40" width="48" height="8" fill="#d9a93c"/><circle cx="30" cy="31" r="4" fill="#f1e6c8"/></g></svg>`;
 
 const CSS = `
 .mdh-jr { position: fixed; inset: 0; z-index: 28; display: none; align-items: center; justify-content: center; background: rgba(4, 10, 18, 0.55);
@@ -134,7 +134,7 @@ export class Journal {
       known: gs.hasCollected(i.id),
       name: i.name,
       tier: '',
-      art: i.kind === 'bottle' ? BOTTLE_SVG : RELIC_SVG,
+      art: itemArt(i.art, { width: 90 }),
       title: i.kind === 'bottle' ? `${i.name}  ·  ${i.author}` : i.name,
       text: itemJournalText(i),
     }));
