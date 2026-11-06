@@ -36,6 +36,7 @@ import { RescueBar } from './ui/RescueBar.js';
 import { Journal } from './ui/Journal.js';
 import { BottleScene } from './ui/BottleScene.js';
 import { ItemCard } from './ui/ItemCard.js';
+import { CabinScene } from './ui/CabinScene.js';
 
 /*
  * Fluxo do jogo (GameState.phase):
@@ -53,7 +54,7 @@ import { ItemCard } from './ui/ItemCard.js';
  *               Depois do bilhete a bússola aponta para o naufrágio do Esperança II:
  *               parado dentro do aro por alguns segundos, o barco resgata o
  *               Capitão Dutra (RescueSystem); só então a bússola volta para a ilha
- *               Na Ilha da Lanterna: cena de chegada, cabana do avô (diário) e a água da ilha,
+ *               Na Ilha da Lanterna: cena de chegada, cabana do avô (interior animado + diário) e a água da ilha,
  *               onde se pesca os peixes lendários (spotId 'ilha-lanterna')
  *   'won'     → não dispara mais: a zona de pesca não é um objetivo de vitória
  */
@@ -260,6 +261,7 @@ const journal = new Journal({ gameState, keyLabel: () => keyName('journal') });
 const bottleScene = new BottleScene({ settings }); // garrafa recolhida: o papel sai e abre
 const rescueBar = new RescueBar(); // progresso do resgate (topo da tela)
 const itemCard = new ItemCard({ settings }); // relíquia recolhida: cartão com o desenho
+const cabinScene = new CabinScene(); // interior da cabana do avô: tela cheia, animado (fica sob a caixa de diálogo)
 
 const dialogue = new DialogueBox({ settings });
 
@@ -475,7 +477,11 @@ engine.start((delta, elapsed) => {
     if (input.consumeInteract()) {
       input.reset();
       hud.setPrompt(null);
-      playScene('cabin', () => gameState.setFlag('cabin-read'));
+      cabinScene.open(); // o interior da cabana aparece por baixo do diário
+      playScene('cabin', () => {
+        cabinScene.close();
+        gameState.setFlag('cabin-read');
+      });
     }
   } else if (!fishing.active) {
     input.consumeInteract(); // descarta toques soltos para não abrirem a cabana depois
